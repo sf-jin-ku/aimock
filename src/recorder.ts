@@ -62,7 +62,9 @@ export async function proxyAndRecord(
   if (!record) return false;
 
   const providers = record.providers;
-  const upstreamUrl = providers[providerKey];
+  // gemini-interactions shares the same upstream config as gemini
+  const lookupKey = providerKey === "gemini-interactions" ? "gemini" : providerKey;
+  const upstreamUrl = providers[lookupKey];
 
   if (!upstreamUrl) {
     defaults.logger.warn(`No upstream URL configured for provider "${providerKey}" — cannot proxy`);
@@ -497,6 +499,33 @@ function buildFixtureResponse(
     };
   }
 
+  // Gemini Interactions: { id, status, outputs: [{ type: "text", text }, { type: "function_call", name, arguments }] }
+  if (Array.isArray(obj.outputs) && obj.outputs.length > 0) {
+    const outputs = obj.outputs as Array<Record<string, unknown>>;
+    const fnCallOutputs = outputs.filter((o) => o.type === "function_call");
+    const textOutputs = outputs.filter((o) => o.type === "text" && typeof o.text === "string");
+    const hasToolCalls = fnCallOutputs.length > 0;
+    const joinedText = textOutputs.map((o) => String(o.text ?? "")).join("");
+    const hasContent = joinedText.length > 0;
+
+    if (hasToolCalls) {
+      const toolCalls: ToolCall[] = fnCallOutputs.map((o) => ({
+        name: String(o.name),
+        arguments: typeof o.arguments === "string" ? o.arguments : JSON.stringify(o.arguments),
+        ...(o.id ? { id: String(o.id) } : {}),
+      }));
+      if (hasContent) {
+        return { content: joinedText, toolCalls };
+      }
+      return { toolCalls };
+    }
+    if (hasContent) {
+      return { content: joinedText };
+    }
+    // Recognized Gemini Interactions shape but empty content
+    return { content: "" };
+  }
+
   // OpenAI video generation: { id, status, ... }
   // Guard against false positives: many API responses have `id` + `status` fields
   // (e.g. chat completions, Anthropic messages). Reject if the response has fields
@@ -510,7 +539,8 @@ function buildFixtureResponse(
     !("candidates" in obj) &&
     !("message" in obj) &&
     !("data" in obj) &&
-    !("object" in obj)
+    !("object" in obj) &&
+    !("outputs" in obj)
   ) {
     if (obj.status === "completed" && obj.url) {
       return {

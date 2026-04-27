@@ -33,6 +33,7 @@ import { handleMessages } from "./messages.js";
 import { handleGemini } from "./gemini.js";
 import { handleBedrock, handleBedrockStream } from "./bedrock.js";
 import { handleConverse, handleConverseStream } from "./bedrock-converse.js";
+import { handleGeminiInteractions } from "./gemini-interactions.js";
 import { handleEmbeddings } from "./embeddings.js";
 import { handleImages } from "./images.js";
 import { handleSpeech } from "./speech.js";
@@ -119,6 +120,7 @@ function normalizeCompatPath(pathname: string, logger?: Logger): string {
   return pathname;
 }
 
+const GEMINI_INTERACTIONS_PATH = "/v1beta/interactions";
 const GEMINI_PATH_RE = /^\/v1beta\/models\/([^:]+):(generateContent|streamGenerateContent)$/;
 const AZURE_DEPLOYMENT_RE = /^\/openai\/deployments\/([^/]+)\/(chat\/completions|embeddings)$/;
 const BEDROCK_INVOKE_RE = /^\/model\/([^/]+)\/invoke$/;
@@ -1219,6 +1221,31 @@ export async function createServer(
           );
         } else if (!res.writableEnded) {
           res.destroy();
+        }
+      }
+      return;
+    }
+
+    // POST /v1beta/interactions — Google Gemini Interactions API
+    if (pathname === GEMINI_INTERACTIONS_PATH && req.method === "POST") {
+      try {
+        const raw = await readBody(req);
+        await handleGeminiInteractions(req, res, raw, fixtures, journal, defaults, setCorsHeaders);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Internal error";
+        if (!res.headersSent) {
+          writeErrorResponse(
+            res,
+            500,
+            JSON.stringify({ error: { message: msg, type: "server_error" } }),
+          );
+        } else if (!res.writableEnded) {
+          try {
+            res.write(`data: ${JSON.stringify({ error: { message: msg } })}\n\n`);
+          } catch (writeErr) {
+            logger.debug("Failed to write error recovery response:", writeErr);
+          }
+          res.end();
         }
       }
       return;
