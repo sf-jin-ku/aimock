@@ -168,23 +168,37 @@ export async function proxyAndRecord(
     if (collapsed.droppedChunks && collapsed.droppedChunks > 0) {
       defaults.logger.warn(`${collapsed.droppedChunks} chunk(s) dropped during stream collapse`);
     }
-    if (collapsed.content === "" && (!collapsed.toolCalls || collapsed.toolCalls.length === 0)) {
+    // Audio from streamed inlineData (e.g. Gemini SSE with audio parts)
+    if (collapsed.audioB64) {
+      fixtureResponse = {
+        audio: {
+          b64Json: collapsed.audioB64,
+          contentType: collapsed.audioMimeType ?? "audio/mp3",
+        },
+      };
+    } else if (
+      collapsed.content === "" &&
+      (!collapsed.toolCalls || collapsed.toolCalls.length === 0)
+    ) {
       defaults.logger.warn("Stream collapse produced empty content — fixture may be incomplete");
-    }
-    const reasoningSpread = collapsed.reasoning ? { reasoning: collapsed.reasoning } : {};
-    if (collapsed.toolCalls && collapsed.toolCalls.length > 0) {
-      if (collapsed.content) {
-        // Both content and toolCalls present — save as ContentWithToolCallsResponse
-        fixtureResponse = {
-          content: collapsed.content,
-          toolCalls: collapsed.toolCalls,
-          ...reasoningSpread,
-        };
-      } else {
-        fixtureResponse = { toolCalls: collapsed.toolCalls, ...reasoningSpread };
-      }
-    } else {
+      const reasoningSpread = collapsed.reasoning ? { reasoning: collapsed.reasoning } : {};
       fixtureResponse = { content: collapsed.content ?? "", ...reasoningSpread };
+    } else {
+      const reasoningSpread = collapsed.reasoning ? { reasoning: collapsed.reasoning } : {};
+      if (collapsed.toolCalls && collapsed.toolCalls.length > 0) {
+        if (collapsed.content) {
+          // Both content and toolCalls present — save as ContentWithToolCallsResponse
+          fixtureResponse = {
+            content: collapsed.content,
+            toolCalls: collapsed.toolCalls,
+            ...reasoningSpread,
+          };
+        } else {
+          fixtureResponse = { toolCalls: collapsed.toolCalls, ...reasoningSpread };
+        }
+      } else {
+        fixtureResponse = { content: collapsed.content ?? "", ...reasoningSpread };
+      }
     }
   } else {
     // Non-streaming — try to parse as JSON
@@ -626,6 +640,24 @@ function buildFixtureResponse(
     const content = candidate.content as Record<string, unknown> | undefined;
     if (content && Array.isArray(content.parts)) {
       const parts = content.parts as Array<Record<string, unknown>>;
+
+      // Audio inlineData parts take priority over text
+      const audioParts = parts.filter(
+        (p: Record<string, unknown>) =>
+          p.inlineData &&
+          typeof (p.inlineData as Record<string, unknown>).mimeType === "string" &&
+          ((p.inlineData as Record<string, unknown>).mimeType as string).startsWith("audio/"),
+      );
+      if (audioParts.length > 0) {
+        const inlineData = audioParts[0].inlineData as Record<string, unknown>;
+        return {
+          audio: {
+            b64Json: String(inlineData.data ?? ""),
+            contentType: String(inlineData.mimeType),
+          },
+        };
+      }
+
       const fnCallParts = parts.filter((p) => p.functionCall);
       const textParts = parts.filter((p) => typeof p.text === "string" && !p.thought);
       const thoughtParts = parts.filter((p) => p.thought === true && typeof p.text === "string");
