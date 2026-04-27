@@ -22,6 +22,8 @@ export interface CollapseResult {
   toolCalls?: ToolCall[];
   droppedChunks?: number;
   truncated?: boolean;
+  audioB64?: string;
+  audioMimeType?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -259,7 +261,10 @@ export function collapseAnthropicSSE(body: string): CollapseResult {
 export function collapseGeminiSSE(body: string): CollapseResult {
   const lines = body.split("\n\n").filter((l) => l.trim().length > 0);
   let content = "";
+  let reasoning = "";
   let droppedChunks = 0;
+  let audioB64 = "";
+  let audioMimeType: string | undefined;
   const toolCalls: ToolCall[] = [];
 
   for (const line of lines) {
@@ -292,21 +297,50 @@ export function collapseGeminiSSE(body: string): CollapseResult {
           name: String(fc.name ?? ""),
           arguments: typeof fc.args === "string" ? (fc.args as string) : JSON.stringify(fc.args),
         });
+      } else if (
+        part.inlineData &&
+        typeof (part.inlineData as Record<string, unknown>).mimeType === "string" &&
+        ((part.inlineData as Record<string, unknown>).mimeType as string).startsWith("audio/")
+      ) {
+        const inlineData = part.inlineData as Record<string, unknown>;
+        if (!audioMimeType) {
+          audioMimeType = inlineData.mimeType as string;
+        }
+        if (typeof inlineData.data === "string") {
+          audioB64 += inlineData.data;
+        }
       } else if (typeof part.text === "string") {
-        content += part.text;
+        if (part.thought) {
+          reasoning += part.text;
+        } else {
+          content += part.text;
+        }
       }
     }
+  }
+
+  if (audioB64) {
+    return {
+      audioB64,
+      audioMimeType,
+      ...(droppedChunks > 0 ? { droppedChunks } : {}),
+    };
   }
 
   if (toolCalls.length > 0) {
     return {
       ...(content ? { content } : {}),
       toolCalls,
+      ...(reasoning ? { reasoning } : {}),
       ...(droppedChunks > 0 ? { droppedChunks } : {}),
     };
   }
 
-  return { content, ...(droppedChunks > 0 ? { droppedChunks } : {}) };
+  return {
+    content,
+    ...(reasoning ? { reasoning } : {}),
+    ...(droppedChunks > 0 ? { droppedChunks } : {}),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -453,6 +487,7 @@ export function collapseCohereSSE(body: string): CollapseResult {
   if (toolCallMap.size > 0) {
     const sorted = Array.from(toolCallMap.entries()).sort(([a], [b]) => a - b);
     return {
+      ...(content ? { content } : {}),
       toolCalls: sorted.map(([, tc]) => ({
         name: tc.name,
         arguments: tc.arguments,
