@@ -693,6 +693,16 @@ describe("collapseStreamingResponse", () => {
     expect(result!.content).toBe("vertex-hi");
   });
 
+  it('dispatches text/event-stream with "gemini-interactions" to Gemini Interactions collapse', () => {
+    const body = [
+      'data: {"event_type":"content.delta","index":0,"delta":{"type":"text","text":"gi-hi"},"event_id":"evt_1"}',
+      "",
+    ].join("\n");
+    const result = collapseStreamingResponse("text/event-stream", "gemini-interactions", body);
+    expect(result).not.toBeNull();
+    expect(result!.content).toBe("gi-hi");
+  });
+
   it('dispatches text/event-stream with "unknown-provider" to OpenAI collapse (fallback)', () => {
     const body = `data: ${JSON.stringify({ id: "c1", choices: [{ delta: { content: "fallback-hi" } }] })}\n\ndata: [DONE]\n\n`;
     const result = collapseStreamingResponse(
