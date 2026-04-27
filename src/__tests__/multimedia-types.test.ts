@@ -26,9 +26,34 @@ describe("multimedia type guards", () => {
     expect(isImageResponse(r)).toBe(false);
   });
 
-  test("isAudioResponse detects audio", () => {
+  test("isAudioResponse detects audio (string form)", () => {
     const r: FixtureResponse = { audio: "AAAA", format: "mp3" };
     expect(isAudioResponse(r)).toBe(true);
+  });
+
+  test("isAudioResponse detects audio (object form with contentType)", () => {
+    const r: FixtureResponse = { audio: { b64Json: "abc", contentType: "audio/mp3" } };
+    expect(isAudioResponse(r)).toBe(true);
+  });
+
+  test("isAudioResponse detects audio (object form without contentType)", () => {
+    const r: FixtureResponse = { audio: { b64Json: "abc" } };
+    expect(isAudioResponse(r)).toBe(true);
+  });
+
+  test("isAudioResponse accepts empty b64Json (validation is in fixture-loader)", () => {
+    const r: FixtureResponse = { audio: { b64Json: "" } };
+    expect(isAudioResponse(r)).toBe(true);
+  });
+
+  test("isAudioResponse rejects numeric audio", () => {
+    const r = { audio: 123 } as unknown as FixtureResponse;
+    expect(isAudioResponse(r)).toBe(false);
+  });
+
+  test("isAudioResponse rejects object without b64Json", () => {
+    const r = { audio: { foo: "bar" } } as unknown as FixtureResponse;
+    expect(isAudioResponse(r)).toBe(false);
   });
 
   test("isAudioResponse rejects text response", () => {
