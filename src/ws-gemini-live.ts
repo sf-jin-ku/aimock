@@ -6,9 +6,21 @@
  * messages in the Gemini Live streaming format.
  */
 
-import type { Fixture, ChatMessage, ChatCompletionRequest, ToolDefinition } from "./types.js";
+import type {
+  Fixture,
+  ChatMessage,
+  ChatCompletionRequest,
+  ToolDefinition,
+  AudioResponse,
+} from "./types.js";
 import { matchFixture } from "./router.js";
-import { isTextResponse, isToolCallResponse, isErrorResponse } from "./helpers.js";
+import {
+  isTextResponse,
+  isToolCallResponse,
+  isErrorResponse,
+  isAudioResponse,
+  formatToMime,
+} from "./helpers.js";
 import { createInterruptionSignal } from "./interruption.js";
 import { delay } from "./sse-writer.js";
 import { DEFAULT_TEST_ID, type Journal } from "./journal.js";
@@ -21,6 +33,7 @@ interface GeminiLivePart {
   text?: string;
   functionCall?: { name: string; args: Record<string, unknown> };
   functionResponse?: { name: string; response: unknown; id?: string };
+  inlineData?: { mimeType: string; data: string };
 }
 
 interface GeminiLiveTurn {
@@ -89,6 +102,8 @@ function geminiTurnsToMessages(turns: GeminiLiveTurn[]): ChatMessage[] {
 
     if (role === "user") {
       const funcResponses = turn.parts.filter((p) => p.functionResponse);
+      // inlineData parts (e.g. client audio input) are silently skipped —
+      // only text and functionResponse parts are relevant for fixture matching.
       const textParts = turn.parts.filter((p) => p.text !== undefined);
 
       if (funcResponses.length > 0) {
@@ -365,6 +380,41 @@ async function processMessage(
     ws.send(
       JSON.stringify({
         error: { code: status, message: response.error.message, status: "ERROR" },
+      }),
+    );
+    return;
+  }
+
+  // Audio response — single frame with inlineData and turnComplete: true
+  if (isAudioResponse(response)) {
+    journal.add({
+      method: "WS",
+      path,
+      headers: {},
+      body: completionReq,
+      response: { status: 200, fixture },
+    });
+
+    const audioResp = response as AudioResponse;
+    let mimeType: string;
+    let data: string;
+
+    if (typeof audioResp.audio === "string") {
+      mimeType = formatToMime(audioResp.format ?? "mp3");
+      data = audioResp.audio;
+    } else {
+      mimeType = audioResp.audio.contentType ?? "audio/mp3";
+      data = audioResp.audio.b64Json;
+    }
+
+    ws.send(
+      JSON.stringify({
+        serverContent: {
+          modelTurn: {
+            parts: [{ inlineData: { mimeType, data } }],
+          },
+          turnComplete: true,
+        },
       }),
     );
     return;
