@@ -8,6 +8,7 @@
 
 import type * as http from "node:http";
 import type {
+  AudioResponse,
   ChatCompletionRequest,
   ChatMessage,
   Fixture,
@@ -23,7 +24,9 @@ import {
   isToolCallResponse,
   isContentWithToolCallsResponse,
   isErrorResponse,
+  isAudioResponse,
   extractOverrides,
+  formatToMime,
   generateToolCallId,
   flattenHeaders,
   getTestId,
@@ -43,6 +46,7 @@ interface GeminiPart {
   thought?: boolean;
   functionCall?: { name: string; args: Record<string, unknown>; id?: string };
   functionResponse?: { name: string; response: unknown };
+  inlineData?: { mimeType: string; data: string };
 }
 
 interface GeminiContent {
@@ -449,6 +453,48 @@ function buildGeminiContentWithToolCallsResponse(
   };
 }
 
+// ─── Audio response builders ────────────────────────────────────────────────
+
+function resolveAudioInlineData(audio: AudioResponse): { mimeType: string; data: string } {
+  if (typeof audio.audio === "string") {
+    return { mimeType: formatToMime(audio.format ?? "mp3"), data: audio.audio };
+  }
+  return {
+    mimeType: audio.audio.contentType ?? "audio/mp3",
+    data: audio.audio.b64Json,
+  };
+}
+
+function buildGeminiAudioResponse(audio: AudioResponse): GeminiResponseChunk {
+  const inlineData = resolveAudioInlineData(audio);
+  return {
+    candidates: [
+      {
+        content: { role: "model", parts: [{ inlineData }] },
+        finishReason: "STOP",
+        index: 0,
+      },
+    ],
+    usageMetadata: { promptTokenCount: 0, candidatesTokenCount: 0, totalTokenCount: 0 },
+  };
+}
+
+function buildGeminiAudioStreamChunks(audio: AudioResponse): GeminiResponseChunk[] {
+  const inlineData = resolveAudioInlineData(audio);
+  return [
+    {
+      candidates: [
+        {
+          content: { role: "model", parts: [{ inlineData }] },
+          finishReason: "STOP",
+          index: 0,
+        },
+      ],
+      usageMetadata: { promptTokenCount: 0, candidatesTokenCount: 0, totalTokenCount: 0 },
+    },
+  ];
+}
+
 // ─── SSE writer for Gemini streaming ────────────────────────────────────────
 
 interface GeminiStreamOptions {
@@ -646,6 +692,38 @@ export async function handleGemini(
       },
     };
     writeErrorResponse(res, status, JSON.stringify(geminiError));
+    return;
+  }
+
+  // Audio response
+  if (isAudioResponse(response)) {
+    const journalEntry = journal.add({
+      method: req.method ?? "POST",
+      path,
+      headers: flattenHeaders(req.headers),
+      body: completionReq,
+      response: { status: 200, fixture },
+    });
+    if (!streaming) {
+      const body = buildGeminiAudioResponse(response);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(body));
+    } else {
+      const chunks = buildGeminiAudioStreamChunks(response);
+      const interruption = createInterruptionSignal(fixture);
+      const completed = await writeGeminiSSEStream(res, chunks, {
+        latency,
+        streamingProfile: fixture.streamingProfile,
+        signal: interruption?.signal,
+        onChunkSent: interruption?.tick,
+      });
+      if (!completed) {
+        if (!res.writableEnded) res.destroy();
+        journalEntry.response.interrupted = true;
+        journalEntry.response.interruptReason = interruption?.reason();
+      }
+      interruption?.cleanup();
+    }
     return;
   }
 
