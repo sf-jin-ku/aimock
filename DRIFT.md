@@ -77,6 +77,7 @@ When a `critical` drift is detected:
    - OpenAI Responses API → `src/responses.ts` (`buildTextResponse`, `buildToolCallResponse`, `buildTextStreamEvents`, `buildToolCallStreamEvents`)
    - Anthropic Claude → `src/messages.ts` (`buildClaudeTextResponse`, `buildClaudeToolCallResponse`, `buildClaudeTextStreamEvents`, `buildClaudeToolCallStreamEvents`)
    - Google Gemini → `src/gemini.ts` (`buildGeminiTextResponse`, `buildGeminiToolCallResponse`, `buildGeminiTextStreamChunks`, `buildGeminiToolCallStreamChunks`)
+   - Gemini Interactions → `src/gemini-interactions.ts` (`buildInteractionsTextResponse`, `buildInteractionsToolCallResponse`, `buildInteractionsTextSSEEvents`, `buildInteractionsToolCallSSEEvents`)
 
 2. **Update the builder** — add or modify the field to match the real API shape.
 
@@ -106,7 +107,18 @@ When a model is deprecated:
 
 ## WebSocket Drift Coverage
 
-In addition to the 19 existing drift tests (16 HTTP response-shape + 3 model deprecation), WebSocket drift tests cover aimock's WS protocols (4 verified + 2 canary = 6 WS tests):
+In addition to the 23 existing drift tests (20 HTTP response-shape + 3 model deprecation), WebSocket drift tests cover aimock's WS protocols (4 verified + 2 canary = 6 WS tests):
+
+### Gemini Interactions API (Beta)
+
+The Gemini Interactions API (`/v1beta/interactions`) is covered by 4 drift tests in `gemini-interactions.drift.ts`:
+
+- Non-streaming text shape
+- Streaming text event sequence
+- Non-streaming tool call shape
+- Streaming tool call event sequence
+
+Uses `describe.skipIf(!GOOGLE_API_KEY)` like other Gemini tests. The Interactions API is in Beta — shapes may shift as Google iterates on the endpoint.
 
 | Protocol            | Text | Tool Call | Real Endpoint                                                       | Status     |
 | ------------------- | ---- | --------- | ------------------------------------------------------------------- | ---------- |
@@ -163,4 +175,4 @@ The fix workflow also supports `workflow_dispatch` for manual runs.
 
 ## Cost
 
-~25 API calls per run (16 HTTP response-shape + 3 model listing + 6 WS including canaries) using the cheapest available models (`gpt-4o-mini`, `gpt-4o-mini-realtime-preview`, `claude-haiku-4-5-20251001`, `gemini-2.5-flash`) with 10-100 max tokens each. Under $0.15/week at daily cadence. When Gemini Live text-capable models become available, the 2 canary tests will become full drift tests, increasing real WS connections from 4 to 6.
+~29 API calls per run (20 HTTP response-shape + 3 model listing + 6 WS including canaries) using the cheapest available models (`gpt-4o-mini`, `gpt-4o-mini-realtime-preview`, `claude-haiku-4-5-20251001`, `gemini-2.5-flash`) with 10-100 max tokens each. Under $0.20/week at daily cadence. When Gemini Live text-capable models become available, the 2 canary tests will become full drift tests, increasing real WS connections from 4 to 6.

@@ -77,6 +77,27 @@ export function parseTypedSSE(body: string): { type: string; data: Record<string
     });
 }
 
+/**
+ * Parse data-only SSE blocks where the event_type is inside the JSON payload.
+ * Used by the Gemini Interactions API which emits `data: {...}\n\n` with
+ * `event_type` as a field in the JSON object.
+ */
+export function parseInteractionsSSE(
+  body: string,
+): { event_type: string; data: Record<string, any> }[] {
+  return body
+    .split("\n\n")
+    .filter((block) => block.startsWith("data: ") && !block.includes("[DONE]"))
+    .map((block) => {
+      const json = block.slice(6);
+      const data = JSON.parse(json) as Record<string, any>;
+      return {
+        event_type: (data.event_type as string) ?? "unknown",
+        data,
+      };
+    });
+}
+
 // ---------------------------------------------------------------------------
 // Common fixtures
 // ---------------------------------------------------------------------------

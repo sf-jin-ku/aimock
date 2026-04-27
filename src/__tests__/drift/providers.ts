@@ -375,6 +375,84 @@ export async function geminiStreaming(
 }
 
 // ---------------------------------------------------------------------------
+// Google Gemini Interactions API (Beta)
+// ---------------------------------------------------------------------------
+
+export async function geminiInteractionsNonStreaming(
+  config: ProviderConfig,
+  input: string,
+  tools?: object[],
+): Promise<FetchResult> {
+  const body: Record<string, unknown> = {
+    model: "gemini-2.5-flash",
+    input,
+    stream: false,
+  };
+  if (tools) body.tools = tools;
+
+  const res = await fetchWithRetry(
+    `https://generativelanguage.googleapis.com/v1beta/interactions`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": config.apiKey,
+      },
+      body: JSON.stringify(body),
+    },
+  );
+
+  const raw = await res.text();
+  return {
+    status: res.status,
+    body: parseJsonResponse(raw, res.status, "Gemini Interactions"),
+    raw,
+  };
+}
+
+export async function geminiInteractionsStreaming(
+  config: ProviderConfig,
+  input: string,
+  tools?: object[],
+): Promise<StreamResult> {
+  const body: Record<string, unknown> = {
+    model: "gemini-2.5-flash",
+    input,
+    stream: true,
+  };
+  if (tools) body.tools = tools;
+
+  const res = await fetchWithRetry(
+    `https://generativelanguage.googleapis.com/v1beta/interactions`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": config.apiKey,
+      },
+      body: JSON.stringify(body),
+    },
+  );
+
+  const raw = await res.text();
+  assertOk(raw, res.status, "Gemini Interactions streaming");
+  // Interactions uses data-only SSE (data: {...}\n\n) with event_type inside the JSON
+  const parsed = parseDataOnlySSE(raw);
+  const rawEvents = parsed.map((p) => {
+    const data = p.data as Record<string, unknown>;
+    return {
+      type: (data.event_type as string) ?? "unknown",
+      data: data,
+    };
+  });
+  return {
+    status: res.status,
+    events: toSSEEventShapes(rawEvents),
+    rawEvents,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // OpenAI Embeddings
 // ---------------------------------------------------------------------------
 
