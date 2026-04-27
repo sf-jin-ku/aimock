@@ -91,7 +91,30 @@ export function isImageResponse(r: FixtureResponse): r is ImageResponse {
 }
 
 export function isAudioResponse(r: FixtureResponse): r is AudioResponse {
-  return "audio" in r && typeof (r as AudioResponse).audio === "string";
+  if (!("audio" in r)) return false;
+  const a = (r as AudioResponse).audio;
+  return typeof a === "string" || (typeof a === "object" && a !== null && "b64Json" in a);
+}
+
+/**
+ * Map audio format shorthand to MIME content types.
+ * Shared between speech, ElevenLabs, and fal audio handlers.
+ */
+export const FORMAT_TO_CONTENT_TYPE: Record<string, string> = {
+  mp3: "audio/mpeg",
+  opus: "audio/opus",
+  aac: "audio/aac",
+  flac: "audio/flac",
+  wav: "audio/wav",
+  pcm: "audio/pcm",
+};
+
+/**
+ * Resolve a format string (e.g. "mp3", "opus") to its MIME content type.
+ * Falls back to "application/octet-stream" for unknown formats.
+ */
+export function formatToMime(format: string): string {
+  return FORMAT_TO_CONTENT_TYPE[format] ?? "application/octet-stream";
 }
 
 export function isTranscriptionResponse(r: FixtureResponse): r is TranscriptionResponse {

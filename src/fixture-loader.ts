@@ -375,6 +375,25 @@ export function validateFixtures(fixtures: Fixture[]): ValidationResult[] {
       }
     }
 
+    // Audio response checks — validate object-form audio
+    if (isAudioResponse(response) && typeof response.audio === "object") {
+      const audioObj = response.audio;
+      if (typeof audioObj.b64Json !== "string" || audioObj.b64Json === "") {
+        results.push({
+          severity: "error",
+          fixtureIndex: i,
+          message: "audio.b64Json must be a non-empty string",
+        });
+      }
+      if (audioObj.contentType !== undefined && typeof audioObj.contentType !== "string") {
+        results.push({
+          severity: "error",
+          fixtureIndex: i,
+          message: `audio.contentType must be a string, got ${typeof audioObj.contentType}`,
+        });
+      }
+    }
+
     // Validate ResponseOverrides fields
     if (
       isTextResponse(response) ||

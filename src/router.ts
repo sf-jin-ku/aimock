@@ -62,6 +62,8 @@ export function matchFixture(
       const compatible =
         (reqEndpoint === "image" && isImageResponse(r)) ||
         (reqEndpoint === "speech" && isAudioResponse(r)) ||
+        (reqEndpoint === "audio-gen" && isAudioResponse(r)) ||
+        (reqEndpoint === "fal-audio" && isAudioResponse(r)) ||
         (reqEndpoint === "transcription" && isTranscriptionResponse(r)) ||
         (reqEndpoint === "video" && isVideoResponse(r));
       if (!compatible) continue;

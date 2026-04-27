@@ -1,6 +1,12 @@
 import type * as http from "node:http";
 import type { ChatCompletionRequest, Fixture, HandlerDefaults } from "./types.js";
-import { isAudioResponse, isErrorResponse, flattenHeaders, getTestId } from "./helpers.js";
+import {
+  isAudioResponse,
+  isErrorResponse,
+  flattenHeaders,
+  getTestId,
+  FORMAT_TO_CONTENT_TYPE,
+} from "./helpers.js";
 import { matchFixture } from "./router.js";
 import { writeErrorResponse } from "./sse-writer.js";
 import type { Journal } from "./journal.js";
@@ -15,15 +21,6 @@ interface SpeechRequest {
   speed?: number;
   [key: string]: unknown;
 }
-
-const FORMAT_TO_CONTENT_TYPE: Record<string, string> = {
-  mp3: "audio/mpeg",
-  opus: "audio/opus",
-  aac: "audio/aac",
-  flac: "audio/flac",
-  wav: "audio/wav",
-  pcm: "audio/pcm",
-};
 
 export async function handleSpeech(
   req: http.IncomingMessage,
@@ -182,6 +179,29 @@ export async function handleSpeech(
       500,
       JSON.stringify({
         error: { message: "Fixture response is not an audio type", type: "server_error" },
+      }),
+    );
+    return;
+  }
+
+  // Object-form audio is not supported for the speech endpoint — reject early
+  if (typeof response.audio !== "string") {
+    journal.add({
+      method,
+      path,
+      headers: flattenHeaders(req.headers),
+      body: syntheticReq,
+      response: { status: 500, fixture },
+    });
+    writeErrorResponse(
+      res,
+      500,
+      JSON.stringify({
+        error: {
+          message:
+            "Object-form audio not supported for speech endpoint. Use string-form: { audio: '<base64>' }",
+          type: "server_error",
+        },
       }),
     );
     return;

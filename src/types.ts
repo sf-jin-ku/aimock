@@ -72,7 +72,15 @@ export interface FixtureMatch {
   predicate?: (req: ChatCompletionRequest) => boolean;
   /** Which occurrence of this match to respond to (0-indexed). Undefined means match any. */
   sequenceIndex?: number;
-  endpoint?: "chat" | "image" | "speech" | "transcription" | "video" | "embedding";
+  endpoint?:
+    | "chat"
+    | "image"
+    | "speech"
+    | "transcription"
+    | "video"
+    | "embedding"
+    | "audio-gen"
+    | "fal-audio";
 }
 
 // Fixture response types
@@ -155,7 +163,7 @@ export interface ImageResponse {
 }
 
 export interface AudioResponse {
-  audio: string;
+  audio: string | { b64Json: string; contentType?: string };
   format?: string;
 }
 
@@ -277,7 +285,15 @@ export interface FixtureFileEntry {
     model?: string;
     responseFormat?: string;
     sequenceIndex?: number;
-    endpoint?: "chat" | "image" | "speech" | "transcription" | "video" | "embedding";
+    endpoint?:
+      | "chat"
+      | "image"
+      | "speech"
+      | "transcription"
+      | "video"
+      | "embedding"
+      | "audio-gen"
+      | "fal-audio";
     // predicate not supported in JSON files
   };
   response: FixtureFileResponse;
@@ -376,7 +392,9 @@ export type RecordProviderKey =
   | "bedrock"
   | "azure"
   | "ollama"
-  | "cohere";
+  | "cohere"
+  | "elevenlabs"
+  | "fal";
 
 export interface RecordConfig {
   providers: Partial<Record<RecordProviderKey, string>>;
