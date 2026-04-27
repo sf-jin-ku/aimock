@@ -10,6 +10,7 @@
         { label: "Quick Start: LLM", href: "/chat-completions" },
         { label: "Quick Start: aimock", href: "/aimock-cli" },
         { label: "Examples", href: "/examples" },
+        { label: "MCP Server", href: "/mcp" },
       ],
     },
     {
@@ -19,6 +20,7 @@
         { label: "Responses API (OpenAI)", href: "/responses-api" },
         { label: "Claude Messages", href: "/claude-messages" },
         { label: "Gemini", href: "/gemini" },
+        { label: "Gemini Interactions", href: "/gemini-interactions" },
         { label: "Azure OpenAI", href: "/azure-openai" },
         { label: "AWS Bedrock", href: "/aws-bedrock" },
         { label: "Ollama", href: "/ollama" },
