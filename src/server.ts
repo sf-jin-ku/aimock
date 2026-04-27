@@ -25,6 +25,7 @@ import {
   isToolCallResponse,
   isContentWithToolCallsResponse,
   isErrorResponse,
+  isAudioResponse,
   flattenHeaders,
   getTestId,
 } from "./helpers.js";
@@ -38,6 +39,8 @@ import { handleImages } from "./images.js";
 import { handleSpeech } from "./speech.js";
 import { handleTranscription } from "./transcription.js";
 import { handleVideoCreate, handleVideoStatus, VideoStateMap } from "./video.js";
+import { handleElevenLabsAudio } from "./elevenlabs-audio.js";
+import { handleFalQueue, falJobs } from "./fal-audio.js";
 import { handleOllama, handleOllamaGenerate } from "./ollama.js";
 import { handleCohere } from "./cohere.js";
 import { handleSearch, type SearchFixture } from "./search.js";
@@ -77,6 +80,11 @@ const TRANSCRIPTIONS_PATH = "/v1/audio/transcriptions";
 const VIDEOS_PATH = "/v1/videos";
 const VIDEOS_STATUS_RE = /^\/v1\/videos\/([^/]+)$/;
 const GEMINI_PREDICT_RE = /^\/v1beta\/models\/([^:]+):predict$/;
+const ELEVENLABS_SOUND_GENERATION_PATH = "/v1/sound-generation";
+const ELEVENLABS_MUSIC_RE = /^\/v1\/music(?:\/(.+))?$/;
+const FAL_QUEUE_SUBMIT_RE = /^\/fal\/queue\/submit\/(.+)$/;
+const FAL_QUEUE_REQUESTS_RE = /^\/fal\/queue\/requests\/(.+)$/;
+const FAL_RUN_RE = /^\/fal\/run\/(.+)$/;
 const DEFAULT_CHUNK_SIZE = 20;
 
 // OpenAI-compatible endpoint suffixes for path prefix normalization.
@@ -292,6 +300,7 @@ async function handleControlAPI(
     fixtures.length = 0;
     journal.clear();
     videoStates.clear();
+    falJobs.clear();
     if (defaults.registry) {
       defaults.registry.setGauge("aimock_fixtures_loaded", {}, fixtures.length);
     }
@@ -559,6 +568,29 @@ async function handleCompletions(
       response: { status, fixture },
     });
     writeErrorResponse(res, status, JSON.stringify(response));
+    return;
+  }
+
+  // Audio responses are not supported on the chat completions endpoint
+  if (isAudioResponse(response)) {
+    journal.add({
+      method: req.method ?? "POST",
+      path: req.url ?? COMPLETIONS_PATH,
+      headers: flattenHeaders(req.headers),
+      body,
+      response: { status: 422, fixture },
+    });
+    writeErrorResponse(
+      res,
+      422,
+      JSON.stringify({
+        error: {
+          message:
+            "Audio responses are not supported on the chat completions endpoint. Use Gemini generateContent or a dedicated audio endpoint.",
+          type: "invalid_request_error",
+        },
+      }),
+    );
     return;
   }
 
@@ -1557,6 +1589,199 @@ export async function createServer(
           defaults,
           setCorsHeaders,
         );
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Internal error";
+        if (!res.headersSent) {
+          writeErrorResponse(
+            res,
+            500,
+            JSON.stringify({ error: { message: msg, type: "server_error" } }),
+          );
+        } else if (!res.writableEnded) {
+          res.destroy();
+        }
+      }
+      return;
+    }
+
+    // POST /v1/sound-generation — ElevenLabs Sound Generation API
+    if (pathname === ELEVENLABS_SOUND_GENERATION_PATH && req.method === "POST") {
+      setCorsHeaders(res);
+      try {
+        const raw = await readBody(req);
+        const chaosResult = applyChaos(
+          res,
+          null,
+          defaults.chaos,
+          req.headers,
+          journal,
+          {
+            method: req.method ?? "POST",
+            path: pathname,
+            headers: flattenHeaders(req.headers),
+            body: { model: "", messages: [] },
+          },
+          defaults.registry,
+          defaults.logger,
+        );
+        if (chaosResult) return;
+        await handleElevenLabsAudio(req, res, raw, fixtures, defaults, journal, "sound-generation");
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Internal error";
+        if (!res.headersSent) {
+          writeErrorResponse(
+            res,
+            500,
+            JSON.stringify({ error: { message: msg, type: "server_error" } }),
+          );
+        } else if (!res.writableEnded) {
+          res.destroy();
+        }
+      }
+      return;
+    }
+
+    // POST /v1/music/(generation|variation|remix|extend) — ElevenLabs Music API
+    const musicMatch = pathname.match(ELEVENLABS_MUSIC_RE);
+    if (musicMatch && req.method === "POST") {
+      setCorsHeaders(res);
+      const musicSubType = musicMatch[1] ?? "music";
+      try {
+        const raw = await readBody(req);
+        const chaosResult = applyChaos(
+          res,
+          null,
+          defaults.chaos,
+          req.headers,
+          journal,
+          {
+            method: req.method ?? "POST",
+            path: pathname,
+            headers: flattenHeaders(req.headers),
+            body: { model: "", messages: [] },
+          },
+          defaults.registry,
+          defaults.logger,
+        );
+        if (chaosResult) return;
+        await handleElevenLabsAudio(req, res, raw, fixtures, defaults, journal, musicSubType);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Internal error";
+        if (!res.headersSent) {
+          writeErrorResponse(
+            res,
+            500,
+            JSON.stringify({ error: { message: msg, type: "server_error" } }),
+          );
+        } else if (!res.writableEnded) {
+          res.destroy();
+        }
+      }
+      return;
+    }
+
+    // POST /fal/queue/submit/{model} — fal.ai Queue Submit
+    const falQueueSubmitMatch = pathname.match(FAL_QUEUE_SUBMIT_RE);
+    if (falQueueSubmitMatch && req.method === "POST") {
+      setCorsHeaders(res);
+      try {
+        const raw = await readBody(req);
+        const chaosResult = applyChaos(
+          res,
+          null,
+          defaults.chaos,
+          req.headers,
+          journal,
+          {
+            method: req.method ?? "POST",
+            path: pathname,
+            headers: flattenHeaders(req.headers),
+            body: { model: "", messages: [] },
+          },
+          defaults.registry,
+          defaults.logger,
+        );
+        if (chaosResult) return;
+        await handleFalQueue(req, res, raw, pathname, fixtures, defaults, journal);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Internal error";
+        if (!res.headersSent) {
+          writeErrorResponse(
+            res,
+            500,
+            JSON.stringify({ error: { message: msg, type: "server_error" } }),
+          );
+        } else if (!res.writableEnded) {
+          res.destroy();
+        }
+      }
+      return;
+    }
+
+    // GET /fal/queue/requests/{requestId} — fal.ai Queue Status/Result
+    const falQueueRequestsMatch = pathname.match(FAL_QUEUE_REQUESTS_RE);
+    if (
+      falQueueRequestsMatch &&
+      (req.method === "GET" || req.method === "POST" || req.method === "PUT")
+    ) {
+      setCorsHeaders(res);
+      try {
+        const raw = req.method === "POST" ? await readBody(req) : "{}";
+        const chaosResult = applyChaos(
+          res,
+          null,
+          defaults.chaos,
+          req.headers,
+          journal,
+          {
+            method: req.method ?? "GET",
+            path: pathname,
+            headers: flattenHeaders(req.headers),
+            body: { model: "", messages: [] },
+          },
+          defaults.registry,
+          defaults.logger,
+        );
+        if (chaosResult) return;
+        await handleFalQueue(req, res, raw, pathname, fixtures, defaults, journal);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Internal error";
+        if (!res.headersSent) {
+          writeErrorResponse(
+            res,
+            500,
+            JSON.stringify({ error: { message: msg, type: "server_error" } }),
+          );
+        } else if (!res.writableEnded) {
+          res.destroy();
+        }
+      }
+      return;
+    }
+
+    // POST /fal/run/{model} — fal.ai Synchronous Run
+    const falRunMatch = pathname.match(FAL_RUN_RE);
+    if (falRunMatch && req.method === "POST") {
+      setCorsHeaders(res);
+      try {
+        const raw = await readBody(req);
+        const chaosResult = applyChaos(
+          res,
+          null,
+          defaults.chaos,
+          req.headers,
+          journal,
+          {
+            method: req.method ?? "POST",
+            path: pathname,
+            headers: flattenHeaders(req.headers),
+            body: { model: "", messages: [] },
+          },
+          defaults.registry,
+          defaults.logger,
+        );
+        if (chaosResult) return;
+        await handleFalQueue(req, res, raw, pathname, fixtures, defaults, journal);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : "Internal error";
         if (!res.headersSent) {

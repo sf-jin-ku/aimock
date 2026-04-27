@@ -27,6 +27,7 @@ import { Journal } from "./journal.js";
 import type { SearchFixture, SearchResult } from "./search.js";
 import type { RerankFixture, RerankResult } from "./rerank.js";
 import type { ModerationFixture, ModerationResult } from "./moderation.js";
+import { falJobs } from "./fal-audio.js";
 
 export class LLMock {
   private fixtures: Fixture[] = [];
@@ -158,6 +159,31 @@ export class LLMock {
     });
   }
 
+  onAudio(input: string | RegExp, response: AudioResponse): this {
+    return this.addFixture({ match: { userMessage: input }, response });
+  }
+
+  onSoundEffect(text: string | RegExp, response: AudioResponse): this {
+    return this.addFixture({
+      match: { userMessage: text, endpoint: "audio-gen" },
+      response,
+    });
+  }
+
+  onMusic(prompt: string | RegExp, response: AudioResponse): this {
+    return this.addFixture({
+      match: { userMessage: prompt, endpoint: "audio-gen" },
+      response,
+    });
+  }
+
+  onFalAudio(prompt: string | RegExp, response: AudioResponse, model?: string): this {
+    return this.addFixture({
+      match: { userMessage: prompt, endpoint: "fal-audio", ...(model ? { model } : {}) },
+      response,
+    });
+  }
+
   // ---- Service mock convenience methods ----
 
   onSearch(pattern: string | RegExp, results: SearchResult[]): this {
@@ -204,11 +230,9 @@ export class LLMock {
     fixture.match.predicate = (req) => {
       const result = original(req);
       if (result) {
-        // Defer splice so it doesn't mutate the array while matchFixture iterates it
-        queueMicrotask(() => {
-          const idx = this.fixtures.indexOf(fixture);
-          if (idx !== -1) this.fixtures.splice(idx, 1);
-        });
+        // Remove synchronously on first match to prevent race conditions
+        const idx = this.fixtures.indexOf(fixture);
+        if (idx !== -1) this.fixtures.splice(idx, 1);
       }
       return result;
     };
@@ -284,6 +308,7 @@ export class LLMock {
     this.searchFixtures.length = 0;
     this.rerankFixtures.length = 0;
     this.moderationFixtures.length = 0;
+    falJobs.clear();
     if (this.serverInstance) {
       this.serverInstance.journal.clear();
       this.serverInstance.videoStates.clear();
