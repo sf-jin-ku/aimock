@@ -6,9 +6,23 @@
  * messages in the Gemini Live streaming format.
  */
 
-import type { Fixture, ChatMessage, ChatCompletionRequest, ToolDefinition } from "./types.js";
+import type {
+  Fixture,
+  ChatMessage,
+  ChatCompletionRequest,
+  ToolDefinition,
+  AudioResponse,
+} from "./types.js";
 import { matchFixture } from "./router.js";
-import { isTextResponse, isToolCallResponse, isErrorResponse } from "./helpers.js";
+import {
+  isTextResponse,
+  isToolCallResponse,
+  isContentWithToolCallsResponse,
+  isErrorResponse,
+  isAudioResponse,
+  formatToMime,
+  generateToolCallId,
+} from "./helpers.js";
 import { createInterruptionSignal } from "./interruption.js";
 import { delay } from "./sse-writer.js";
 import { DEFAULT_TEST_ID, type Journal } from "./journal.js";
@@ -19,8 +33,10 @@ import type { WebSocketConnection } from "./ws-framing.js";
 
 interface GeminiLivePart {
   text?: string;
+  thought?: boolean;
   functionCall?: { name: string; args: Record<string, unknown> };
   functionResponse?: { name: string; response: unknown; id?: string };
+  inlineData?: { mimeType: string; data: string };
 }
 
 interface GeminiLiveTurn {
@@ -89,7 +105,9 @@ function geminiTurnsToMessages(turns: GeminiLiveTurn[]): ChatMessage[] {
 
     if (role === "user") {
       const funcResponses = turn.parts.filter((p) => p.functionResponse);
-      const textParts = turn.parts.filter((p) => p.text !== undefined);
+      // inlineData parts (e.g. client audio input) are silently skipped —
+      // only text and functionResponse parts are relevant for fixture matching.
+      const textParts = turn.parts.filter((p) => p.text !== undefined && !p.thought);
 
       if (funcResponses.length > 0) {
         for (let i = 0; i < funcResponses.length; i++) {
@@ -113,7 +131,7 @@ function geminiTurnsToMessages(turns: GeminiLiveTurn[]): ChatMessage[] {
       }
     } else if (role === "model") {
       const funcCalls = turn.parts.filter((p) => p.functionCall);
-      const textParts = turn.parts.filter((p) => p.text !== undefined);
+      const textParts = turn.parts.filter((p) => p.text !== undefined && !p.thought);
 
       if (funcCalls.length > 0) {
         messages.push({
@@ -327,6 +345,13 @@ async function processMessage(
   if (!fixture) {
     if (defaults.strict) {
       defaults.logger.warn(`STRICT: No fixture matched for WebSocket message`);
+      journal.add({
+        method: "WS",
+        path,
+        headers: {},
+        body: completionReq,
+        response: { status: 404, fixture: null },
+      });
       ws.close(1008, "Strict mode: no fixture matched");
       return;
     }
@@ -367,6 +392,184 @@ async function processMessage(
         error: { code: status, message: response.error.message, status: "ERROR" },
       }),
     );
+    return;
+  }
+
+  // Audio response — single frame with inlineData and turnComplete: true
+  if (isAudioResponse(response)) {
+    journal.add({
+      method: "WS",
+      path,
+      headers: {},
+      body: completionReq,
+      response: { status: 200, fixture },
+    });
+
+    const audioResp = response as AudioResponse;
+    let mimeType: string;
+    let data: string;
+
+    if (typeof audioResp.audio === "string") {
+      mimeType = formatToMime(audioResp.format ?? "mp3");
+      data = audioResp.audio;
+    } else {
+      mimeType = audioResp.audio.contentType ?? "audio/mpeg";
+      data = audioResp.audio.b64Json;
+    }
+
+    ws.send(
+      JSON.stringify({
+        serverContent: {
+          modelTurn: {
+            parts: [{ inlineData: { mimeType, data } }],
+          },
+          turnComplete: true,
+        },
+      }),
+    );
+
+    session.conversationHistory.push({
+      role: "assistant",
+      content: "[audio]",
+    });
+    return;
+  }
+
+  // Content + tool calls response (must be checked before isTextResponse / isToolCallResponse)
+  if (isContentWithToolCallsResponse(response)) {
+    const journalEntry = journal.add({
+      method: "WS",
+      path,
+      headers: {},
+      body: completionReq,
+      response: { status: 200, fixture },
+    });
+
+    const content = response.content;
+    const chunkList: string[] = [];
+    for (let i = 0; i < content.length; i += chunkSize) {
+      chunkList.push(content.slice(i, i + chunkSize));
+    }
+
+    const interruption = createInterruptionSignal(fixture);
+    let interrupted = false;
+
+    // Stream text content chunks
+    if (content.length === 0) {
+      if (!ws.isClosed) {
+        ws.send(
+          JSON.stringify({
+            serverContent: {
+              modelTurn: { parts: [{ text: "" }] },
+              turnComplete: false,
+            },
+          }),
+        );
+      }
+    } else {
+      for (let i = 0; i < chunkList.length; i++) {
+        if (ws.isClosed) break;
+        if (latency > 0) await delay(latency, interruption?.signal);
+        if (interruption?.signal.aborted) {
+          interrupted = true;
+          break;
+        }
+        if (ws.isClosed) break;
+
+        ws.send(
+          JSON.stringify({
+            serverContent: {
+              modelTurn: { parts: [{ text: chunkList[i] }] },
+              turnComplete: false,
+            },
+          }),
+        );
+        interruption?.tick();
+        if (interruption?.signal.aborted) {
+          interrupted = true;
+          break;
+        }
+      }
+    }
+
+    if (interrupted) {
+      ws.destroy();
+      journalEntry.response.interrupted = true;
+      journalEntry.response.interruptReason = interruption?.reason();
+      interruption?.cleanup();
+      return;
+    }
+
+    // Pre-compute tool calls with stable IDs so wire message and history match
+    const resolvedToolCalls = response.toolCalls.map((tc) => ({
+      ...tc,
+      resolvedId: tc.id ?? generateToolCallId(),
+    }));
+
+    // Send tool calls
+    if (!ws.isClosed) {
+      if (latency > 0) await delay(latency, interruption?.signal);
+      if (interruption?.signal.aborted) {
+        ws.destroy();
+        journalEntry.response.interrupted = true;
+        journalEntry.response.interruptReason = interruption?.reason();
+        interruption?.cleanup();
+        return;
+      }
+
+      const functionCalls = resolvedToolCalls.map((tc) => {
+        let argsObj: Record<string, unknown>;
+        try {
+          argsObj = JSON.parse(tc.arguments || "{}") as Record<string, unknown>;
+        } catch {
+          defaults.logger.warn(
+            `Malformed JSON in fixture tool call arguments for "${tc.name}": ${tc.arguments}`,
+          );
+          argsObj = {};
+        }
+        return {
+          name: tc.name,
+          args: argsObj,
+          id: tc.resolvedId,
+        };
+      });
+
+      ws.send(JSON.stringify({ toolCall: { functionCalls } }));
+      interruption?.tick();
+    }
+
+    if (interruption?.signal.aborted) {
+      ws.destroy();
+      journalEntry.response.interrupted = true;
+      journalEntry.response.interruptReason = interruption?.reason();
+      interruption?.cleanup();
+      return;
+    }
+
+    interruption?.cleanup();
+
+    // Send turnComplete
+    if (!ws.isClosed) {
+      ws.send(
+        JSON.stringify({
+          serverContent: { turnComplete: true },
+        }),
+      );
+    }
+
+    // Add to conversation history using the same resolved IDs from the wire message
+    session.conversationHistory.push({
+      role: "assistant",
+      content: content || null,
+      tool_calls: resolvedToolCalls.map((tc) => ({
+        id: tc.resolvedId,
+        type: "function" as const,
+        function: {
+          name: tc.name,
+          arguments: tc.arguments,
+        },
+      })),
+    });
     return;
   }
 
