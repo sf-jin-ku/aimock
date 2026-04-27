@@ -158,6 +158,31 @@ export class LLMock {
     });
   }
 
+  onAudio(input: string | RegExp, response: AudioResponse): this {
+    return this.addFixture({ match: { userMessage: input }, response });
+  }
+
+  onSoundEffect(text: string | RegExp, response: AudioResponse): this {
+    return this.addFixture({
+      match: { userMessage: text, endpoint: "audio-gen" },
+      response,
+    });
+  }
+
+  onMusic(prompt: string | RegExp, response: AudioResponse): this {
+    return this.addFixture({
+      match: { userMessage: prompt, endpoint: "audio-gen" },
+      response,
+    });
+  }
+
+  onFalAudio(prompt: string | RegExp, response: AudioResponse, model?: string): this {
+    return this.addFixture({
+      match: { userMessage: prompt, endpoint: "fal-audio", ...(model ? { model } : {}) },
+      response,
+    });
+  }
+
   // ---- Service mock convenience methods ----
 
   onSearch(pattern: string | RegExp, results: SearchResult[]): this {

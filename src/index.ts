@@ -84,6 +84,8 @@ export { handleImages } from "./images.js";
 export { handleSpeech } from "./speech.js";
 export { handleTranscription } from "./transcription.js";
 export { handleVideoCreate, handleVideoStatus, VideoStateMap } from "./video.js";
+export { handleElevenLabsAudio } from "./elevenlabs-audio.js";
+export { handleFalQueue } from "./fal-audio.js";
 
 // Helpers
 export {
@@ -110,6 +112,8 @@ export {
   isVideoResponse,
   generateDeterministicEmbedding,
   buildEmbeddingResponse,
+  FORMAT_TO_CONTENT_TYPE,
+  formatToMime,
 } from "./helpers.js";
 export type { EmbeddingAPIResponse } from "./helpers.js";
 

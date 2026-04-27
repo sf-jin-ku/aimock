@@ -25,6 +25,7 @@ import {
   isToolCallResponse,
   isContentWithToolCallsResponse,
   isErrorResponse,
+  isAudioResponse,
   flattenHeaders,
   getTestId,
 } from "./helpers.js";
@@ -38,6 +39,8 @@ import { handleImages } from "./images.js";
 import { handleSpeech } from "./speech.js";
 import { handleTranscription } from "./transcription.js";
 import { handleVideoCreate, handleVideoStatus, VideoStateMap } from "./video.js";
+import { handleElevenLabsAudio } from "./elevenlabs-audio.js";
+import { handleFalQueue } from "./fal-audio.js";
 import { handleOllama, handleOllamaGenerate } from "./ollama.js";
 import { handleCohere } from "./cohere.js";
 import { handleSearch, type SearchFixture } from "./search.js";
@@ -559,6 +562,29 @@ async function handleCompletions(
       response: { status, fixture },
     });
     writeErrorResponse(res, status, JSON.stringify(response));
+    return;
+  }
+
+  // Audio responses are not supported on the chat completions endpoint
+  if (isAudioResponse(response)) {
+    journal.add({
+      method: req.method ?? "POST",
+      path: req.url ?? COMPLETIONS_PATH,
+      headers: flattenHeaders(req.headers),
+      body,
+      response: { status: 422, fixture },
+    });
+    writeErrorResponse(
+      res,
+      422,
+      JSON.stringify({
+        error: {
+          message:
+            "Audio responses are not supported on the chat completions endpoint. Use Gemini generateContent or a dedicated audio endpoint.",
+          type: "invalid_request_error",
+        },
+      }),
+    );
     return;
   }
 
@@ -1556,6 +1582,148 @@ export async function createServer(
           journal,
           defaults,
           setCorsHeaders,
+        );
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Internal error";
+        if (!res.headersSent) {
+          writeErrorResponse(
+            res,
+            500,
+            JSON.stringify({ error: { message: msg, type: "server_error" } }),
+          );
+        } else if (!res.writableEnded) {
+          res.destroy();
+        }
+      }
+      return;
+    }
+
+    // POST /v1/sound-generation — ElevenLabs Sound Effects API
+    if (pathname === "/v1/sound-generation" && req.method === "POST") {
+      try {
+        const raw = await readBody(req);
+        await handleElevenLabsAudio(
+          req,
+          res,
+          raw,
+          fixtures,
+          defaults,
+          journal.getFixtureMatchCountsForTest(getTestId(req)),
+          "sound-generation",
+        );
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Internal error";
+        if (!res.headersSent) {
+          writeErrorResponse(
+            res,
+            500,
+            JSON.stringify({ error: { message: msg, type: "server_error" } }),
+          );
+        } else if (!res.writableEnded) {
+          res.destroy();
+        }
+      }
+      return;
+    }
+
+    // POST /v1/music or /v1/music/* — ElevenLabs Music API
+    if ((pathname === "/v1/music" || pathname.startsWith("/v1/music/")) && req.method === "POST") {
+      const musicSubType =
+        pathname === "/v1/music" ? "music" : pathname.slice("/v1/music/".length) || "music";
+      try {
+        const raw = await readBody(req);
+        await handleElevenLabsAudio(
+          req,
+          res,
+          raw,
+          fixtures,
+          defaults,
+          journal.getFixtureMatchCountsForTest(getTestId(req)),
+          musicSubType,
+        );
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Internal error";
+        if (!res.headersSent) {
+          writeErrorResponse(
+            res,
+            500,
+            JSON.stringify({ error: { message: msg, type: "server_error" } }),
+          );
+        } else if (!res.writableEnded) {
+          res.destroy();
+        }
+      }
+      return;
+    }
+
+    // POST /fal/queue/submit/* — fal.ai queue submission
+    if (pathname.startsWith("/fal/queue/submit/") && req.method === "POST") {
+      try {
+        const raw = await readBody(req);
+        await handleFalQueue(
+          req,
+          res,
+          raw,
+          pathname,
+          fixtures,
+          defaults,
+          journal.getFixtureMatchCountsForTest(getTestId(req)),
+        );
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Internal error";
+        if (!res.headersSent) {
+          writeErrorResponse(
+            res,
+            500,
+            JSON.stringify({ error: { message: msg, type: "server_error" } }),
+          );
+        } else if (!res.writableEnded) {
+          res.destroy();
+        }
+      }
+      return;
+    }
+
+    // POST/GET /fal/queue/requests/* — fal.ai queue status
+    if (pathname.startsWith("/fal/queue/requests/")) {
+      try {
+        const raw = req.method === "POST" ? await readBody(req) : "";
+        await handleFalQueue(
+          req,
+          res,
+          raw,
+          pathname,
+          fixtures,
+          defaults,
+          journal.getFixtureMatchCountsForTest(getTestId(req)),
+        );
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Internal error";
+        if (!res.headersSent) {
+          writeErrorResponse(
+            res,
+            500,
+            JSON.stringify({ error: { message: msg, type: "server_error" } }),
+          );
+        } else if (!res.writableEnded) {
+          res.destroy();
+        }
+      }
+      return;
+    }
+
+    // POST /fal/run/* — fal.ai synchronous run
+    if (pathname.startsWith("/fal/run/") && req.method === "POST") {
+      try {
+        const raw = await readBody(req);
+        await handleFalQueue(
+          req,
+          res,
+          raw,
+          pathname,
+          fixtures,
+          defaults,
+          journal.getFixtureMatchCountsForTest(getTestId(req)),
         );
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : "Internal error";
