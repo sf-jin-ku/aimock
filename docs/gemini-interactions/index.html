@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Gemini Interactions — aimock</title>
+    <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Instrument+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="../style.css" />
+  </head>
+  <body>
+    <nav class="top-nav">
+      <div class="nav-inner">
+        <div style="display: flex; align-items: center; gap: 1rem">
+          <button
+            class="sidebar-toggle"
+            onclick="document.querySelector('.sidebar').classList.toggle('open')"
+            aria-label="Toggle sidebar"
+          >
+            &#9776;
+          </button>
+          <a href="/" class="nav-brand"> <span class="prompt">$</span> aimock </a>
+        </div>
+        <ul class="nav-links">
+          <li><a href="/">Home</a></li>
+          <li><a href="/docs" style="color: var(--accent)">Docs</a></li>
+          <li>
+            <a href="https://github.com/CopilotKit/aimock" class="gh-link" target="_blank"
+              ><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                <path
+                  d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"
+                />
+              </svg>
+              GitHub</a
+            >
+          </li>
+        </ul>
+      </div>
+    </nav>
+
+    <div class="docs-layout">
+      <aside class="sidebar" id="sidebar"></aside>
+
+      <main class="docs-content">
+        <h1>Gemini Interactions API</h1>
+        <p class="lead">
+          The Gemini Interactions API is Google's stateful conversation endpoint. Unlike the
+          standard
+          <code>generateContent</code>/<code>streamGenerateContent</code> endpoints, Interactions
+          uses <code>previous_interaction_id</code> for server-side conversation state, flat
+          <code>outputs[]</code> instead of nested <code>candidates[].content.parts[]</code>, and
+          typed SSE events with an <code>event_type</code> field inside each JSON payload.
+        </p>
+
+        <h2>Endpoint</h2>
+        <table class="endpoint-table">
+          <thead>
+            <tr>
+              <th>Method</th>
+              <th>Path</th>
+              <th>Format</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>POST</td>
+              <td>/v1beta/interactions</td>
+              <td>SSE (typed JSON events)</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>Quick Start</h2>
+        <p>Set up a minimal mock that responds to a Gemini Interactions request:</p>
+
+        <div class="code-block">
+          <div class="code-block-header">quick-start.ts <span class="lang-tag">ts</span></div>
+          <pre><code><span class="kw">import</span> { <span class="type">LLMock</span> } <span class="kw">from</span> <span class="str">"@copilotkit/aimock"</span>;
+
+<span class="kw">const</span> <span class="op">mock</span> = <span class="kw">new</span> <span class="type">LLMock</span>();
+<span class="op">mock</span>.<span class="fn">on</span>({ <span class="prop">userMessage</span>: <span class="str">"hello"</span> }, { <span class="prop">content</span>: <span class="str">"Hi there!"</span> });
+<span class="kw">await</span> <span class="op">mock</span>.<span class="fn">listen</span>(<span class="num">4010</span>);
+
+<span class="cm">// Client sends:</span>
+<span class="cm">// POST /v1beta/interactions</span>
+<span class="cm">// { model: "gemini-2.5-flash", input: "hello", stream: true }</span></code></pre>
+        </div>
+
+        <h2>Request Format</h2>
+        <p>
+          The Interactions API accepts several input shapes. aimock normalizes all of them into the
+          unified fixture-matching format.
+        </p>
+
+        <h3>String Input (Simple Prompt)</h3>
+        <div class="code-block">
+          <div class="code-block-header">string-input.json <span class="lang-tag">json</span></div>
+          <pre><code>{
+  <span class="prop">"model"</span>: <span class="str">"gemini-2.5-flash"</span>,
+  <span class="prop">"input"</span>: <span class="str">"What is the capital of France?"</span>,
+  <span class="prop">"stream"</span>: <span class="kw">true</span>
+}</code></pre>
+        </div>
+
+        <h3>Turn[] Input (Multi-Turn)</h3>
+        <div class="code-block">
+          <div class="code-block-header">
+            multi-turn-input.json <span class="lang-tag">json</span>
+          </div>
+          <pre><code>{
+  <span class="prop">"model"</span>: <span class="str">"gemini-2.5-flash"</span>,
+  <span class="prop">"input"</span>: [
+    { <span class="prop">"role"</span>: <span class="str">"user"</span>, <span class="prop">"content"</span>: <span class="str">"Hello"</span> },
+    { <span class="prop">"role"</span>: <span class="str">"model"</span>, <span class="prop">"content"</span>: <span class="str">"Hi there!"</span> },
+    { <span class="prop">"role"</span>: <span class="str">"user"</span>, <span class="prop">"content"</span>: <span class="str">"Tell me a joke"</span> }
+  ],
+  <span class="prop">"stream"</span>: <span class="kw">true</span>
+}</code></pre>
+        </div>
+
+        <h3>Content[] with Function Result (Tool Response)</h3>
+        <div class="code-block">
+          <div class="code-block-header">
+            tool-response-input.json <span class="lang-tag">json</span>
+          </div>
+          <pre><code>{
+  <span class="prop">"model"</span>: <span class="str">"gemini-2.5-flash"</span>,
+  <span class="prop">"input"</span>: [
+    {
+      <span class="prop">"role"</span>: <span class="str">"user"</span>,
+      <span class="prop">"content"</span>: [
+        { <span class="prop">"type"</span>: <span class="str">"function_result"</span>, <span class="prop">"name"</span>: <span class="str">"get_weather"</span>, <span class="prop">"result"</span>: <span class="str">"72F sunny"</span> }
+      ]
+    }
+  ],
+  <span class="prop">"previous_interaction_id"</span>: <span class="str">"interaction_abc123"</span>,
+  <span class="prop">"stream"</span>: <span class="kw">true</span>
+}</code></pre>
+        </div>
+
+        <h3>Stateful Chaining</h3>
+        <p>
+          The <code>previous_interaction_id</code> field links turns together on the server side.
+          Each response includes an <code>interaction_id</code> that the client passes as
+          <code>previous_interaction_id</code> in the next request, eliminating the need to resend
+          full conversation history.
+        </p>
+
+        <h2>Fixture Matching</h2>
+        <p>
+          Fixtures use the same <code>match</code> object as all other providers. The most common
+          matchers for Interactions are <code>userMessage</code> and <code>sequenceIndex</code>.
+        </p>
+
+        <h3>userMessage Matching</h3>
+        <div class="code-block">
+          <div class="code-block-header">
+            user-message-match.ts <span class="lang-tag">ts</span>
+          </div>
+          <pre><code><span class="kw">const</span> <span class="op">fixture</span> = {
+  <span class="prop">match</span>: { <span class="prop">userMessage</span>: <span class="str">"hello"</span> },
+  <span class="prop">response</span>: { <span class="prop">content</span>: <span class="str">"Hi from Gemini Interactions!"</span> },
+};</code></pre>
+        </div>
+
+        <h3>sequenceIndex for Multi-Turn Chains</h3>
+        <p>
+          Since the Interactions API is stateful, multi-turn conversations are the primary use case.
+          Use <code>sequenceIndex</code> to match by turn position:
+        </p>
+        <div class="code-block">
+          <div class="code-block-header">sequence-match.ts <span class="lang-tag">ts</span></div>
+          <pre><code><span class="kw">const</span> <span class="op">fixtures</span> = [
+  {
+    <span class="prop">match</span>: { <span class="prop">sequenceIndex</span>: <span class="num">0</span> },
+    <span class="prop">response</span>: {
+      <span class="prop">toolCalls</span>: [{ <span class="prop">name</span>: <span class="str">"get_weather"</span>, <span class="prop">arguments</span>: { <span class="prop">city</span>: <span class="str">"NYC"</span> } }]
+    },
+  },
+  {
+    <span class="prop">match</span>: { <span class="prop">sequenceIndex</span>: <span class="num">1</span> },
+    <span class="prop">response</span>: { <span class="prop">content</span>: <span class="str">"The weather in NYC is 72F and sunny."</span> },
+  },
+];
+
+<span class="kw">const</span> <span class="op">instance</span> = <span class="kw">await</span> <span class="fn">createServer</span>(<span class="op">fixtures</span>);
+
+<span class="cm">// Turn 1: model calls get_weather tool</span>
+<span class="cm">// Turn 2: after tool result, model produces final text</span></code></pre>
+        </div>
+
+        <h2>SSE Event Format</h2>
+        <p>
+          Unlike standard Gemini SSE (bare <code>data:</code> chunks), the Interactions API uses
+          typed events. Each SSE line is a <code>data:</code> JSON object containing an
+          <code>event_type</code> field.
+        </p>
+
+        <h3>Event Types</h3>
+        <table class="endpoint-table">
+          <thead>
+            <tr>
+              <th>Event Type</th>
+              <th>Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>interaction.start</code></td>
+              <td>Opening event with interaction_id and model metadata</td>
+            </tr>
+            <tr>
+              <td><code>content.start</code></td>
+              <td>Marks beginning of an output part</td>
+            </tr>
+            <tr>
+              <td><code>content.delta</code></td>
+              <td>Incremental text or function_call chunk</td>
+            </tr>
+            <tr>
+              <td><code>content.stop</code></td>
+              <td>Marks completion of an output part</td>
+            </tr>
+            <tr>
+              <td><code>interaction.complete</code></td>
+              <td>Final event with usage metadata and finish reason</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>Text Streaming Example</h3>
+        <div class="code-block">
+          <div class="code-block-header">
+            text-sse-events.txt <span class="lang-tag">text</span>
+          </div>
+          <pre><code>data: {"event_type":"interaction.start","interaction_id":"int_abc123","model":"gemini-2.5-flash"}
+
+data: {"event_type":"content.start","index":0,"type":"text"}
+
+data: {"event_type":"content.delta","index":0,"delta":{"type":"text","text":"Hi "}}
+
+data: {"event_type":"content.delta","index":0,"delta":{"type":"text","text":"there!"}}
+
+data: {"event_type":"content.stop","index":0}
+
+data: {"event_type":"interaction.complete","usage":{"input_tokens":5,"output_tokens":3}}</code></pre>
+        </div>
+
+        <h3>Tool Call Streaming Example</h3>
+        <div class="code-block">
+          <div class="code-block-header">
+            tool-sse-events.txt <span class="lang-tag">text</span>
+          </div>
+          <pre><code>data: {"event_type":"interaction.start","interaction_id":"int_def456","model":"gemini-2.5-flash"}
+
+data: {"event_type":"content.start","index":0,"type":"function_call"}
+
+data: {"event_type":"content.delta","index":0,"delta":{"type":"function_call","name":"get_weather","arguments":"{\"city\":"}}
+
+data: {"event_type":"content.delta","index":0,"delta":{"type":"function_call","arguments":"\"NYC\"}"}}
+
+data: {"event_type":"content.stop","index":0}
+
+data: {"event_type":"interaction.complete","usage":{"input_tokens":8,"output_tokens":12}}</code></pre>
+        </div>
+
+        <h2>Recording</h2>
+        <p>
+          To record real Gemini Interactions API traffic, use the <code>gemini</code> provider
+          settings (same base URL, same API key). The Interactions endpoint shares the Gemini
+          infrastructure:
+        </p>
+
+        <div class="code-block">
+          <div class="code-block-header">record-config.ts <span class="lang-tag">ts</span></div>
+          <pre><code><span class="kw">import</span> { <span class="type">LLMock</span> } <span class="kw">from</span> <span class="str">"@copilotkit/aimock"</span>;
+
+<span class="kw">const</span> <span class="op">mock</span> = <span class="kw">new</span> <span class="type">LLMock</span>({
+  <span class="prop">record</span>: {
+    <span class="prop">gemini</span>: {
+      <span class="prop">baseUrl</span>: <span class="str">"https://generativelanguage.googleapis.com"</span>,
+      <span class="prop">apiKey</span>: <span class="op">process</span>.<span class="prop">env</span>.<span class="prop">GEMINI_API_KEY</span>,
+    },
+  },
+});
+<span class="kw">await</span> <span class="op">mock</span>.<span class="fn">listen</span>(<span class="num">4010</span>);</code></pre>
+        </div>
+
+        <p>
+          Unmatched requests to <code>/v1beta/interactions</code> are proxied to the real API, and
+          the response is recorded as a new fixture.
+        </p>
+
+        <h2>Integration with TanStack AI</h2>
+        <p>
+          TanStack AI provides a <code>geminiTextInteractions()</code> adapter for the Interactions
+          API. When your client uses this adapter, point it at your aimock instance and the same
+          fixtures will serve the responses. See the
+          <a href="https://ai.tanstack.com" target="_blank">TanStack AI docs</a> for adapter
+          configuration.
+        </p>
+
+        <h2>Known Limitations</h2>
+        <div class="info-box">
+          <p>
+            The Gemini Interactions API is currently in <strong>beta</strong>. Both the real API and
+            aimock's support for it are subject to change as the API stabilizes.
+          </p>
+        </div>
+        <ul>
+          <li>
+            <strong>Beta API</strong> &mdash; event types and request shapes may shift between
+            releases.
+          </li>
+          <li>
+            <strong>Text output + function tools only</strong> &mdash; the current scope covers text
+            generation and function calling.
+          </li>
+          <li>
+            <strong>Built-in tools not supported</strong> &mdash; Google's built-in tools
+            (<code>google_search</code>, <code>code_execution</code>) are not yet mocked.
+          </li>
+          <li>
+            <strong>Non-text modalities not supported</strong> &mdash; image, audio, and video
+            inputs/outputs are not handled by this endpoint.
+          </li>
+        </ul>
+      </main>
+      <aside class="page-toc" id="page-toc"></aside>
+    </div>
+    <footer class="docs-footer">
+      <div class="footer-inner">
+        <div class="footer-left"><span>$</span> aimock &middot; MIT License</div>
+        <ul class="footer-links">
+          <li><a href="https://github.com/CopilotKit/aimock" target="_blank">GitHub</a></li>
+          <li>
+            <a href="https://www.npmjs.com/package/@copilotkit/aimock" target="_blank">npm</a>
+          </li>
+        </ul>
+      </div>
+    </footer>
+    <script src="../sidebar.js"></script>
+    <script src="../cli-tabs.js"></script>
+  </body>
+</html>
