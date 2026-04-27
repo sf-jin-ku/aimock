@@ -10,6 +10,7 @@ const PROVIDER_GROUPS: string[][] = [
   ["openai"],
   ["claude", "anthropic"],
   ["gemini", "google.*ai"],
+  ["gemini.*interactions"],
   ["bedrock", "aws"],
   ["azure"],
   ["vertex"],
@@ -412,12 +413,12 @@ describe("provider count extraction from README text", () => {
     expect(countProviders("This is a generic testing library.")).toBe(0);
   });
 
-  it("counts all 12 provider groups when all are mentioned", () => {
+  it("counts all 13 provider groups when all are mentioned", () => {
     const readme = `
-      OpenAI, Claude, Gemini, Bedrock, Azure, Vertex AI,
+      OpenAI, Claude, Gemini, Gemini Interactions, Bedrock, Azure, Vertex AI,
       Ollama, Cohere, Mistral, Groq, Together AI, Llama
     `;
-    expect(countProviders(readme)).toBe(12);
+    expect(countProviders(readme)).toBe(13);
   });
 
   it("is case-insensitive", () => {
@@ -548,7 +549,7 @@ describe("scoped provider count updates", () => {
     <tr>
       <td>LLM providers</td>
       <td>5 providers</td>
-      <td>11 providers</td>
+      <td>12 providers</td>
     </tr>
   </tbody>
 </table>`;
@@ -558,8 +559,8 @@ describe("scoped provider count updates", () => {
 
     // TestComp's cell should be updated
     expect(result).toContain("8 providers");
-    // aimock's 11 providers should be left alone
-    expect(result).toContain("11 providers");
+    // aimock's 12 providers should be left alone
+    expect(result).toContain("12 providers");
     expect(changes.length).toBe(1);
   });
 
@@ -576,7 +577,7 @@ describe("scoped provider count updates", () => {
   <tbody>
     <tr>
       <td>Multi-provider support</td>
-      <td>11 providers</td>
+      <td>12 providers</td>
       <td>5 providers</td>
     </tr>
   </tbody>
@@ -585,8 +586,8 @@ describe("scoped provider count updates", () => {
 
     const result = updateProviderCounts(html, "TestComp", 8, changes);
 
-    // aimock's count must remain 11
-    expect(result).toContain("11 providers");
+    // aimock's count must remain 12
+    expect(result).toContain("12 providers");
     // TestComp's count should be updated to 8
     expect(result).toContain("8 providers");
   });
@@ -602,13 +603,13 @@ describe("scoped provider count updates", () => {
   });
 
   it("does not update prose about aimock when updating competitor", () => {
-    const html = "<p>aimock supports 11 providers natively.</p>";
+    const html = "<p>aimock supports 12 providers natively.</p>";
     const changes: string[] = [];
 
     const result = updateProviderCounts(html, "TestComp", 15, changes);
 
     // aimock's claim in prose should not be touched
-    expect(result).toContain("11 providers");
+    expect(result).toContain("12 providers");
     expect(changes).toHaveLength(0);
   });
 

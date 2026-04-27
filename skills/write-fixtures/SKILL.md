@@ -7,7 +7,7 @@ description: Use when writing test fixtures for @copilotkit/aimock — mock LLM 
 
 ## What aimock Is
 
-aimock is a zero-dependency mock infrastructure for AI apps. Fixture-driven. Multi-provider (OpenAI, Anthropic, Gemini, AWS Bedrock, Azure OpenAI, Vertex AI, Ollama, Cohere). Multimedia endpoints (image generation, text-to-speech, audio transcription, video generation). MCP, A2A, AG-UI, and vector DB mocking. Runs a real HTTP server on a real port — works across processes, unlike MSW-style interceptors. WebSocket support for OpenAI Responses/Realtime and Gemini Live APIs. Record-and-replay for all endpoints including multimedia. Chaos testing and Prometheus metrics.
+aimock is a zero-dependency mock infrastructure for AI apps. Fixture-driven. Multi-provider (OpenAI, Anthropic, Gemini, Gemini Interactions, AWS Bedrock, Azure OpenAI, Vertex AI, Ollama, Cohere). Multimedia endpoints (image generation, text-to-speech, audio transcription, video generation). MCP, A2A, AG-UI, and vector DB mocking. Runs a real HTTP server on a real port — works across processes, unlike MSW-style interceptors. WebSocket support for OpenAI Responses/Realtime and Gemini Live APIs. Record-and-replay for all endpoints including multimedia. Chaos testing and Prometheus metrics.
 
 ## Core Mental Model
 
@@ -422,15 +422,15 @@ These fields map correctly across all provider formats — for example, `finishR
 
 ## Provider Support Matrix
 
-| Feature              | OpenAI Chat | OpenAI Responses | Claude | Gemini | Bedrock | Azure | Ollama | Cohere |
-| -------------------- | ----------- | ---------------- | ------ | ------ | ------- | ----- | ------ | ------ |
-| Text                 | Yes         | Yes              | Yes    | Yes    | Yes     | Yes   | Yes    | Yes    |
-| Tool Calls           | Yes         | Yes              | Yes    | Yes    | Yes     | Yes   | Yes    | Yes    |
-| Content + Tool Calls | Yes         | Yes              | Yes    | Yes    | Yes     | Yes   | Yes    | Yes    |
-| Streaming            | SSE         | SSE              | SSE    | SSE    | Binary  | SSE   | NDJSON | SSE    |
-| Reasoning            | Yes         | Yes              | Yes    | Yes    | Yes     | Yes   | --     | --     |
-| Web Searches         | --          | Yes              | --     | --     | --      | --    | --     | --     |
-| Response Overrides   | Yes         | Yes              | Yes    | Yes    | --      | Yes   | --     | --     |
+| Feature              | OpenAI Chat | OpenAI Responses | Claude | Gemini | Gemini Int. | Bedrock | Azure | Ollama | Cohere |
+| -------------------- | ----------- | ---------------- | ------ | ------ | ----------- | ------- | ----- | ------ | ------ |
+| Text                 | Yes         | Yes              | Yes    | Yes    | Yes         | Yes     | Yes   | Yes    | Yes    |
+| Tool Calls           | Yes         | Yes              | Yes    | Yes    | Yes         | Yes     | Yes   | Yes    | Yes    |
+| Content + Tool Calls | Yes         | Yes              | Yes    | Yes    | Yes         | Yes     | Yes   | Yes    | Yes    |
+| Streaming            | SSE         | SSE              | SSE    | SSE    | SSE         | Binary  | SSE   | NDJSON | SSE    |
+| Reasoning            | Yes         | Yes              | Yes    | Yes    | --          | Yes     | Yes   | --     | --     |
+| Web Searches         | --          | Yes              | --     | --     | --          | --      | --    | --     | --     |
+| Response Overrides   | Yes         | Yes              | Yes    | Yes    | Yes         | --      | Yes   | --     | --     |
 
 ## Critical Gotchas
 
