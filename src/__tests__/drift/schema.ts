@@ -215,6 +215,14 @@ const ALLOWLISTED_PATHS = new Set([
   // Gemini streaming metadata fields vary
   "modelVersion",
   "avgLogprobs",
+  // Gemini Interactions API — timestamps and synthetic event IDs
+  "created",
+  "updated",
+  "event_id",
+  "interaction.usage",
+  "interaction.usage.total_input_tokens",
+  "interaction.usage.total_output_tokens",
+  "interaction.usage.total_tokens",
 ]);
 
 function isAllowlisted(path: string): boolean {

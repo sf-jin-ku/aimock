@@ -132,6 +132,16 @@ const PROVIDER_MAP: Record<string, ProviderMapping> = {
     typesFile: null,
   },
   "OpenAI Embeddings": OPENAI_EMBEDDINGS_MAPPING,
+  "Gemini Interactions": {
+    builderFile: "src/gemini-interactions.ts",
+    builderFunctions: [
+      "buildInteractionsTextResponse",
+      "buildInteractionsToolCallResponse",
+      "buildInteractionsTextSSEEvents",
+      "buildInteractionsToolCallSSEEvents",
+    ],
+    typesFile: null,
+  },
 };
 
 const SDK_SHAPES_FILE = "src/__tests__/drift/sdk-shapes.ts";

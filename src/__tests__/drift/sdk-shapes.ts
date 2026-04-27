@@ -810,3 +810,143 @@ export function geminiStreamLastChunkShape(): ShapeNode {
     },
   });
 }
+
+// ---------------------------------------------------------------------------
+// Google Gemini Interactions API (Beta)
+// ---------------------------------------------------------------------------
+
+export function geminiInteractionsResponseShape(): ShapeNode {
+  return extractShape({
+    id: "int_abc123",
+    status: "completed",
+    model: "gemini-2.5-flash",
+    role: "model",
+    outputs: [{ type: "text", text: "Hello!" }],
+    usage: { total_input_tokens: 0, total_output_tokens: 0, total_tokens: 0 },
+  });
+}
+
+export function geminiInteractionsToolCallResponseShape(): ShapeNode {
+  return extractShape({
+    id: "int_abc123",
+    status: "requires_action",
+    model: "gemini-2.5-flash",
+    role: "model",
+    outputs: [
+      {
+        type: "function_call",
+        id: "call_abc123",
+        name: "get_weather",
+        arguments: { city: "Paris" },
+      },
+    ],
+    usage: { total_input_tokens: 0, total_output_tokens: 0, total_tokens: 0 },
+  });
+}
+
+export function geminiInteractionsStreamEventShapes(): SSEEventShape[] {
+  return [
+    {
+      type: "interaction.start",
+      dataShape: extractShape({
+        event_type: "interaction.start",
+        interaction: { id: "int_abc123", status: "in_progress" },
+        event_id: "evt_1",
+      }),
+    },
+    {
+      type: "content.start",
+      dataShape: extractShape({
+        event_type: "content.start",
+        index: 0,
+        content: { type: "text" },
+        event_id: "evt_2",
+      }),
+    },
+    {
+      type: "content.delta",
+      dataShape: extractShape({
+        event_type: "content.delta",
+        index: 0,
+        delta: { type: "text", text: "Hello" },
+        event_id: "evt_3",
+      }),
+    },
+    {
+      type: "content.stop",
+      dataShape: extractShape({
+        event_type: "content.stop",
+        index: 0,
+        event_id: "evt_4",
+      }),
+    },
+    {
+      type: "interaction.complete",
+      dataShape: extractShape({
+        event_type: "interaction.complete",
+        interaction: {
+          id: "int_abc123",
+          status: "completed",
+          usage: { total_input_tokens: 0, total_output_tokens: 0, total_tokens: 0 },
+        },
+        event_id: "evt_5",
+      }),
+    },
+  ];
+}
+
+export function geminiInteractionsToolCallStreamEventShapes(): SSEEventShape[] {
+  return [
+    {
+      type: "interaction.start",
+      dataShape: extractShape({
+        event_type: "interaction.start",
+        interaction: { id: "int_abc123", status: "in_progress" },
+        event_id: "evt_1",
+      }),
+    },
+    {
+      type: "content.start",
+      dataShape: extractShape({
+        event_type: "content.start",
+        index: 0,
+        content: { type: "function_call" },
+        event_id: "evt_2",
+      }),
+    },
+    {
+      type: "content.delta",
+      dataShape: extractShape({
+        event_type: "content.delta",
+        index: 0,
+        delta: {
+          type: "function_call",
+          id: "call_abc123",
+          name: "get_weather",
+          arguments: { city: "Paris" },
+        },
+        event_id: "evt_3",
+      }),
+    },
+    {
+      type: "content.stop",
+      dataShape: extractShape({
+        event_type: "content.stop",
+        index: 0,
+        event_id: "evt_4",
+      }),
+    },
+    {
+      type: "interaction.complete",
+      dataShape: extractShape({
+        event_type: "interaction.complete",
+        interaction: {
+          id: "int_abc123",
+          status: "requires_action",
+          usage: { total_input_tokens: 0, total_output_tokens: 0, total_tokens: 0 },
+        },
+        event_id: "evt_5",
+      }),
+    },
+  ];
+}

@@ -59,6 +59,7 @@ export const BUILDER_TO_SKILL_SECTION: Record<string, string> = {
   "src/ws-responses.ts": "OpenAI Responses WebSocket",
   "src/ws-gemini-live.ts": "Gemini Live WebSocket",
   "src/helpers.ts": "OpenAI Chat Completions",
+  "src/gemini-interactions.ts": "Gemini Interactions",
 };
 
 // ---------------------------------------------------------------------------
