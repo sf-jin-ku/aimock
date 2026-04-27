@@ -659,6 +659,78 @@ export function collapseBedrockEventStream(body: Buffer): CollapseResult {
 }
 
 // ---------------------------------------------------------------------------
+// 7. Gemini Interactions SSE
+// ---------------------------------------------------------------------------
+
+/**
+ * Collapse Gemini Interactions SSE stream into a single response.
+ *
+ * Format (data-only, event_type inside JSON):
+ *   data: {"event_type":"content.delta","index":0,"delta":{"type":"text","text":"Hello"}}\n\n
+ *   data: {"event_type":"interaction.complete","interaction":{"id":"...","usage":{...}}}\n\n
+ */
+export function collapseGeminiInteractionsSSE(body: string): CollapseResult {
+  const lines = body.split("\n\n").filter((l) => l.trim().length > 0);
+  let content = "";
+  let reasoning = "";
+  let droppedChunks = 0;
+  const toolCalls: ToolCall[] = [];
+
+  for (const line of lines) {
+    const dataLine = line.split("\n").find((l) => l.startsWith("data:"));
+    if (!dataLine) continue;
+
+    const payload = dataLine.slice(5).trim();
+
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(payload) as Record<string, unknown>;
+    } catch {
+      droppedChunks++;
+      continue;
+    }
+
+    const eventType = parsed.event_type as string | undefined;
+    if (!eventType) continue;
+
+    if (eventType === "content.delta") {
+      const delta = parsed.delta as Record<string, unknown> | undefined;
+      if (!delta) continue;
+
+      if (delta.type === "text" && typeof delta.text === "string") {
+        content += delta.text;
+      } else if (delta.type === "function_call") {
+        toolCalls.push({
+          name: String(delta.name ?? ""),
+          arguments:
+            typeof delta.arguments === "string"
+              ? delta.arguments
+              : JSON.stringify(delta.arguments ?? {}),
+          ...(delta.id ? { id: String(delta.id) } : {}),
+        });
+      } else if (delta.type === "thought_summary" && typeof delta.text === "string") {
+        reasoning += delta.text;
+      }
+    }
+  }
+
+  if (toolCalls.length > 0) {
+    return {
+      ...(content ? { content } : {}),
+      toolCalls,
+      ...(reasoning ? { reasoning } : {}),
+      ...(droppedChunks > 0 ? { droppedChunks } : {}),
+    };
+  }
+
+  return {
+    content,
+    ...(reasoning ? { reasoning } : {}),
+    ...(droppedChunks > 0 ? { droppedChunks } : {}),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Dispatch helper — pick the right collapse function by provider
 // ---------------------------------------------------------------------------
 
@@ -696,6 +768,8 @@ export function collapseStreamingResponse(
       case "gemini":
       case "vertexai":
         return collapseGeminiSSE(str);
+      case "gemini-interactions":
+        return collapseGeminiInteractionsSSE(str);
       case "cohere":
         return collapseCohereSSE(str);
       case "bedrock":

@@ -62,7 +62,9 @@ export async function proxyAndRecord(
   if (!record) return false;
 
   const providers = record.providers;
-  const upstreamUrl = providers[providerKey];
+  // gemini-interactions shares the same upstream config as gemini
+  const lookupKey = providerKey === "gemini-interactions" ? "gemini" : providerKey;
+  const upstreamUrl = providers[lookupKey];
 
   if (!upstreamUrl) {
     defaults.logger.warn(`No upstream URL configured for provider "${providerKey}" — cannot proxy`);

@@ -43,6 +43,12 @@ export {
   converseToCompletionRequest,
 } from "./bedrock-converse.js";
 
+// Gemini Interactions
+export {
+  handleGeminiInteractions,
+  geminiInteractionsToCompletionRequest,
+} from "./gemini-interactions.js";
+
 // AWS Event Stream
 export {
   encodeEventStreamFrame,
@@ -136,6 +142,7 @@ export {
   collapseOpenAISSE,
   collapseAnthropicSSE,
   collapseGeminiSSE,
+  collapseGeminiInteractionsSSE,
   collapseOllamaNDJSON,
   collapseCohereSSE,
   collapseBedrockEventStream,
