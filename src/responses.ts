@@ -150,17 +150,39 @@ export function responsesInputToMessages(req: ResponsesRequest): ChatMessage[] {
           ];
           itemReferencePlaceholders.delete(lastMsg);
         } else {
-          messages.push({
-            role: "assistant",
-            content: null,
-            tool_calls: [
-              {
+          // Multi-fco case: look for a recent assistant with tool_calls that
+          // belongs to the same turn. After the first fco upgrades a placeholder,
+          // subsequent fco's see [assistant(call_A), tool(call_A)] — the last
+          // assistant with tool_calls (right before the trailing tool messages)
+          // is the correct target.
+          let appended = false;
+          for (let k = messages.length - 1; k >= 0; k--) {
+            const m = messages[k];
+            if (m.role === "assistant" && m.tool_calls) {
+              m.tool_calls.push({
                 id: item.call_id ?? generateToolCallId(),
                 type: "function",
                 function: { name: "", arguments: "" },
-              },
-            ],
-          });
+              });
+              appended = true;
+              break;
+            }
+            // Stop scanning if we hit a user message — different turn
+            if (m.role === "user") break;
+          }
+          if (!appended) {
+            messages.push({
+              role: "assistant",
+              content: null,
+              tool_calls: [
+                {
+                  id: item.call_id ?? generateToolCallId(),
+                  type: "function",
+                  function: { name: "", arguments: "" },
+                },
+              ],
+            });
+          }
         }
       }
       messages.push({
@@ -439,6 +461,7 @@ function buildReasoningStreamEvents(
 
   events.push({
     type: "response.reasoning_summary_text.done",
+    item_id: reasoningId,
     output_index: 0,
     summary_index: 0,
     text: reasoning,

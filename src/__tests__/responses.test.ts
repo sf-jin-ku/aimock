@@ -1719,6 +1719,129 @@ describe("Bug 6: item_reference for assistant text turns counted in assistantCou
   });
 });
 
+// ─── Bug fix: reasoning_summary_text.done must include item_id ──────────────
+
+describe("reasoning_summary_text.done includes item_id", () => {
+  it("reasoning_summary_text.done has item_id matching the reasoning item", () => {
+    const events = buildTextStreamEvents("result", "gpt-4", 100, "thinking hard");
+    const textDone = events.find((e) => e.type === "response.reasoning_summary_text.done");
+    expect(textDone).toBeDefined();
+    expect(textDone!.item_id).toBeDefined();
+    expect(typeof textDone!.item_id).toBe("string");
+
+    // Verify it matches the reasoning item id
+    const reasoningAdded = events.find(
+      (e) =>
+        e.type === "response.output_item.added" &&
+        (e.item as { type: string })?.type === "reasoning",
+    );
+    const reasoningId = (reasoningAdded!.item as { id: string }).id;
+    expect(textDone!.item_id).toBe(reasoningId);
+  });
+});
+
+// ─── Bug fix: multi-fco after single item_reference ─────────────────────────
+
+describe("multi-fco after single item_reference", () => {
+  it("[user, item_reference, fco_A, fco_B] produces assistantCount=1 with 2 tool_calls", () => {
+    const messages = responsesInputToMessages({
+      model: "gpt-4",
+      input: [
+        { role: "user", content: "hello" },
+        { type: "item_reference", id: "ref_multi_fc" },
+        { type: "function_call_output", call_id: "call_A", output: '{"a":1}' },
+        { type: "function_call_output", call_id: "call_B", output: '{"b":2}' },
+      ],
+    });
+
+    const assistantMsgs = messages.filter((m) => m.role === "assistant");
+    expect(assistantMsgs).toHaveLength(1);
+    expect(assistantMsgs[0].tool_calls).toHaveLength(2);
+    expect(assistantMsgs[0].tool_calls![0].id).toBe("call_A");
+    expect(assistantMsgs[0].tool_calls![1].id).toBe("call_B");
+
+    const toolMsgs = messages.filter((m) => m.role === "tool");
+    expect(toolMsgs).toHaveLength(2);
+  });
+
+  it("[user, item_reference, fco_A, fco_B, user] produces assistantCount=1", () => {
+    const messages = responsesInputToMessages({
+      model: "gpt-4",
+      input: [
+        { role: "user", content: "hello" },
+        { type: "item_reference", id: "ref_multi_fc" },
+        { type: "function_call_output", call_id: "call_A", output: '{"a":1}' },
+        { type: "function_call_output", call_id: "call_B", output: '{"b":2}' },
+        { role: "user", content: "next question" },
+      ],
+    });
+
+    const assistantCount = messages.filter((m) => m.role === "assistant").length;
+    expect(assistantCount).toBe(1);
+  });
+});
+
+// ─── e2e: turnIndex + item_reference via Responses API ──────────────────────
+
+describe("turnIndex + item_reference via Responses API (e2e)", () => {
+  it("selects turnIndex:1 fixture when input has item_reference + fco (assistantCount=1)", async () => {
+    const turn0Fixture: Fixture = {
+      match: { userMessage: "turn-index-test", turnIndex: 0 },
+      response: { content: "turn zero response" },
+    };
+    const turn1Fixture: Fixture = {
+      match: { userMessage: "turn-index-test", turnIndex: 1 },
+      response: { content: "turn one response" },
+    };
+    instance = await createServer([turn0Fixture, turn1Fixture]);
+
+    // Input: [user, item_reference, function_call_output, user]
+    // This should produce assistantCount=1 → turnIndex 1 match
+    const res = await post(`${instance.url}/v1/responses`, {
+      model: "gpt-4",
+      input: [
+        { role: "user", content: "first question" },
+        { type: "item_reference", id: "ref_prev_assistant" },
+        { type: "function_call_output", call_id: "call_prev", output: '{"done":true}' },
+        { role: "user", content: "turn-index-test" },
+      ],
+      stream: false,
+    });
+
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.output[0].content[0].text).toBe("turn one response");
+  });
+
+  it("multi-fco [user, item_reference, fco_A, fco_B, user] produces assistantCount=1", async () => {
+    const turn0Fixture: Fixture = {
+      match: { userMessage: "multi-fco-turn-test", turnIndex: 0 },
+      response: { content: "should not match" },
+    };
+    const turn1Fixture: Fixture = {
+      match: { userMessage: "multi-fco-turn-test", turnIndex: 1 },
+      response: { content: "correct turn one" },
+    };
+    instance = await createServer([turn0Fixture, turn1Fixture]);
+
+    const res = await post(`${instance.url}/v1/responses`, {
+      model: "gpt-4",
+      input: [
+        { role: "user", content: "initial" },
+        { type: "item_reference", id: "ref_2tool_assistant" },
+        { type: "function_call_output", call_id: "call_X", output: '{"x":1}' },
+        { type: "function_call_output", call_id: "call_Y", output: '{"y":2}' },
+        { role: "user", content: "multi-fco-turn-test" },
+      ],
+      stream: false,
+    });
+
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.output[0].content[0].text).toBe("correct turn one");
+  });
+});
+
 // ─── Debug logging in handleResponses ───────────────────────────────────────
 
 describe("handleResponses debug logging", () => {
