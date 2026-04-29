@@ -550,6 +550,12 @@ export async function handleGemini(
   const path = req.url ?? `/v1beta/models/${model}:generateContent`;
 
   if (fixture) {
+    logger.debug(`Fixture matched: ${JSON.stringify(fixture.match).slice(0, 120)}`);
+  } else {
+    logger.debug(`No fixture matched for request`);
+  }
+
+  if (fixture) {
     journal.incrementFixtureMatchCount(fixture, fixtures, testId);
   }
 
