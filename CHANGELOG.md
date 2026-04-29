@@ -1,5 +1,13 @@
 # @copilotkit/aimock
 
+## 1.16.0
+
+### Added
+
+- **`turnIndex` match criterion**: Stateless conversation-depth matching — counts `role: "assistant"` messages in the request's message array. Use for multi-turn conversation flows in shared/deployed instances where `sequenceIndex` counters break under concurrency. `turnIndex: 0` matches the first turn (no prior assistant messages), `turnIndex: 1` the second, etc.
+- **`hasToolResult` match criterion**: Stateless boolean — `true` when any `role: "tool"` message exists in the request, `false` when none do. Simplest option for 2-step HITL flows (tool call → tool result → follow-up).
+- `onTurn(turn, pattern, response, opts)` convenience method on the programmatic API.
+
 ## 1.15.1
 
 ### Fixed
