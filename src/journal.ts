@@ -26,7 +26,9 @@ function matchCriteriaEqual(a: FixtureMatch, b: FixtureMatch): boolean {
     fieldEqual(a.model, b.model) &&
     fieldEqual(a.responseFormat, b.responseFormat) &&
     fieldEqual(a.predicate, b.predicate) &&
-    fieldEqual(a.endpoint, b.endpoint)
+    fieldEqual(a.endpoint, b.endpoint) &&
+    fieldEqual(a.turnIndex, b.turnIndex) &&
+    fieldEqual(a.hasToolResult, b.hasToolResult)
   );
 }
 

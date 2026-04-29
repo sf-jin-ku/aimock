@@ -583,6 +583,172 @@ describe("matchFixture — sequenceIndex", () => {
 });
 
 // ---------------------------------------------------------------------------
+// matchFixture — turnIndex
+// ---------------------------------------------------------------------------
+
+describe("matchFixture — turnIndex", () => {
+  it("matches when assistant message count equals turnIndex", () => {
+    const fixture = makeFixture({ userMessage: "hello", turnIndex: 1 });
+    const req = makeReq({
+      messages: [
+        { role: "system", content: "you are helpful" },
+        { role: "user", content: "hello" },
+        { role: "assistant", content: "hi there" },
+        { role: "user", content: "hello" },
+      ],
+    });
+    expect(matchFixture([fixture], req)).toBe(fixture);
+  });
+
+  it("skips when assistant message count does not equal turnIndex", () => {
+    const fixture = makeFixture({ userMessage: "hello", turnIndex: 2 });
+    const req = makeReq({
+      messages: [
+        { role: "user", content: "hello" },
+        { role: "assistant", content: "hi there" },
+        { role: "user", content: "hello" },
+      ],
+    });
+    expect(matchFixture([fixture], req)).toBeNull();
+  });
+
+  it("turnIndex 0 matches when no assistant messages present", () => {
+    const fixture = makeFixture({ userMessage: "hello", turnIndex: 0 });
+    const req = makeReq({
+      messages: [
+        { role: "system", content: "you are helpful" },
+        { role: "user", content: "hello" },
+      ],
+    });
+    expect(matchFixture([fixture], req)).toBe(fixture);
+  });
+
+  it("selects correct fixture from turnIndex sequence", () => {
+    const turn0 = makeFixture({ userMessage: "hello", turnIndex: 0 }, { content: "turn-0" });
+    const turn1 = makeFixture({ userMessage: "hello", turnIndex: 1 }, { content: "turn-1" });
+    const turn2 = makeFixture({ userMessage: "hello", turnIndex: 2 }, { content: "turn-2" });
+
+    const req0 = makeReq({
+      messages: [{ role: "user", content: "hello" }],
+    });
+    expect(matchFixture([turn0, turn1, turn2], req0)).toBe(turn0);
+
+    const req1 = makeReq({
+      messages: [
+        { role: "user", content: "hello" },
+        { role: "assistant", content: "reply" },
+        { role: "user", content: "hello" },
+      ],
+    });
+    expect(matchFixture([turn0, turn1, turn2], req1)).toBe(turn1);
+
+    const req2 = makeReq({
+      messages: [
+        { role: "user", content: "hello" },
+        { role: "assistant", content: "reply1" },
+        { role: "user", content: "hello" },
+        { role: "assistant", content: "reply2" },
+        { role: "user", content: "hello" },
+      ],
+    });
+    expect(matchFixture([turn0, turn1, turn2], req2)).toBe(turn2);
+  });
+
+  it("falls through to non-turnIndex fixture when no turnIndex matches", () => {
+    const turnOnly = makeFixture({ userMessage: "hello", turnIndex: 0 }, { content: "turn-0" });
+    const fallback = makeFixture({ userMessage: "hello" }, { content: "fallback" });
+    const req = makeReq({
+      messages: [
+        { role: "user", content: "hello" },
+        { role: "assistant", content: "reply1" },
+        { role: "user", content: "hello" },
+        { role: "assistant", content: "reply2" },
+        { role: "user", content: "hello" },
+      ],
+    });
+    expect(matchFixture([turnOnly, fallback], req)).toBe(fallback);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// matchFixture — hasToolResult
+// ---------------------------------------------------------------------------
+
+describe("matchFixture — hasToolResult", () => {
+  it("matches hasToolResult: true when tool messages present", () => {
+    const fixture = makeFixture({ userMessage: "hello", hasToolResult: true });
+    const req = makeReq({
+      messages: [
+        { role: "user", content: "hello" },
+        { role: "assistant", content: "calling tool" },
+        { role: "tool", content: "tool output" },
+        { role: "user", content: "hello" },
+      ],
+    });
+    expect(matchFixture([fixture], req)).toBe(fixture);
+  });
+
+  it("skips hasToolResult: true when no tool messages present", () => {
+    const fixture = makeFixture({ userMessage: "hello", hasToolResult: true });
+    const req = makeReq({
+      messages: [
+        { role: "user", content: "hello" },
+        { role: "assistant", content: "reply" },
+        { role: "user", content: "hello" },
+      ],
+    });
+    expect(matchFixture([fixture], req)).toBeNull();
+  });
+
+  it("matches hasToolResult: false when no tool messages present", () => {
+    const fixture = makeFixture({ userMessage: "hello", hasToolResult: false });
+    const req = makeReq({
+      messages: [{ role: "user", content: "hello" }],
+    });
+    expect(matchFixture([fixture], req)).toBe(fixture);
+  });
+
+  it("skips hasToolResult: false when tool messages present", () => {
+    const fixture = makeFixture({ userMessage: "hello", hasToolResult: false });
+    const req = makeReq({
+      messages: [
+        { role: "user", content: "hello" },
+        { role: "assistant", content: "calling tool" },
+        { role: "tool", content: "tool output" },
+        { role: "user", content: "hello" },
+      ],
+    });
+    expect(matchFixture([fixture], req)).toBeNull();
+  });
+
+  it("discriminates 2-step HITL flow with hasToolResult", () => {
+    const beforeTool = makeFixture(
+      { userMessage: "hello", hasToolResult: false },
+      { content: "before-tool" },
+    );
+    const afterTool = makeFixture(
+      { userMessage: "hello", hasToolResult: true },
+      { content: "after-tool" },
+    );
+
+    const reqBefore = makeReq({
+      messages: [{ role: "user", content: "hello" }],
+    });
+    expect(matchFixture([beforeTool, afterTool], reqBefore)).toBe(beforeTool);
+
+    const reqAfter = makeReq({
+      messages: [
+        { role: "user", content: "hello" },
+        { role: "assistant", content: "calling tool" },
+        { role: "tool", content: "result" },
+        { role: "user", content: "hello" },
+      ],
+    });
+    expect(matchFixture([beforeTool, afterTool], reqAfter)).toBe(afterTool);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // matchFixture — first-match-wins
 // ---------------------------------------------------------------------------
 

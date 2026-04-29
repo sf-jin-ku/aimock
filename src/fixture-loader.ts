@@ -59,6 +59,12 @@ export function entryToFixture(entry: FixtureFileEntry): Fixture {
       responseFormat: entry.match.responseFormat,
       endpoint: entry.match.endpoint,
       ...(entry.match.sequenceIndex !== undefined && { sequenceIndex: entry.match.sequenceIndex }),
+      ...(entry.match.turnIndex !== undefined && {
+        turnIndex: entry.match.turnIndex,
+      }),
+      ...(entry.match.hasToolResult !== undefined && {
+        hasToolResult: entry.match.hasToolResult,
+      }),
     },
     response: normalizeResponse(entry.response),
     ...(entry.latency !== undefined && { latency: entry.latency }),
@@ -552,7 +558,9 @@ export function validateFixtures(fixtures: Fixture[]): ValidationResult[] {
       match.toolCallId !== undefined ||
       match.toolName !== undefined ||
       match.model !== undefined ||
-      match.predicate !== undefined;
+      match.predicate !== undefined ||
+      match.turnIndex !== undefined ||
+      match.hasToolResult !== undefined;
 
     if (!hasDiscriminator && i < fixtures.length - 1) {
       results.push({

@@ -130,6 +130,15 @@ export class LLMock {
     return this.on({ toolCallId: id }, response, opts);
   }
 
+  onTurn(
+    turn: number,
+    pattern: string | RegExp,
+    response: FixtureFileResponse,
+    opts?: FixtureOpts,
+  ): this {
+    return this.on({ userMessage: pattern, turnIndex: turn }, response, opts);
+  }
+
   onImage(prompt: string | RegExp, response: ImageResponse): this {
     return this.addFixture({
       match: { userMessage: prompt, endpoint: "image" },

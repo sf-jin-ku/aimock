@@ -72,6 +72,8 @@ export interface FixtureMatch {
   predicate?: (req: ChatCompletionRequest) => boolean;
   /** Which occurrence of this match to respond to (0-indexed). Undefined means match any. */
   sequenceIndex?: number;
+  turnIndex?: number;
+  hasToolResult?: boolean;
   endpoint?: "chat" | "image" | "speech" | "transcription" | "video" | "embedding";
 }
 
@@ -277,6 +279,8 @@ export interface FixtureFileEntry {
     model?: string;
     responseFormat?: string;
     sequenceIndex?: number;
+    turnIndex?: number;
+    hasToolResult?: boolean;
     endpoint?: "chat" | "image" | "speech" | "transcription" | "video" | "embedding";
     // predicate not supported in JSON files
   };

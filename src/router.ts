@@ -140,6 +140,16 @@ export function matchFixture(
       if (count !== match.sequenceIndex) continue;
     }
 
+    if (match.turnIndex !== undefined) {
+      const assistantCount = effective.messages.filter((m) => m.role === "assistant").length;
+      if (assistantCount !== match.turnIndex) continue;
+    }
+
+    if (match.hasToolResult !== undefined) {
+      const hasTool = effective.messages.some((m) => m.role === "tool");
+      if (hasTool !== match.hasToolResult) continue;
+    }
+
     return fixture;
   }
 
