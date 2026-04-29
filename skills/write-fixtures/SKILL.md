@@ -31,12 +31,37 @@ aimock is a zero-dependency mock infrastructure for AI apps. Fixture-driven. Mul
 | `model`          | `RegExp`                                  | Pattern test on `req.model`                                                                             |
 | `responseFormat` | `string`                                  | Exact match on `req.response_format.type` (`"json_object"`, `"json_schema"`)                            |
 | `sequenceIndex`  | `number`                                  | Matches only when this fixture's match count equals the given index (0-based)                           |
+| `turnIndex`      | `number`                                  | Stateless conversation-depth matching. Counts `role: "assistant"` messages in the request; matches when that count equals the value. `turnIndex: 0` = first turn (no prior assistant messages). Use instead of `sequenceIndex` for shared/deployed instances where stateful counters break under concurrency |
+| `hasToolResult`  | `boolean`                                 | Stateless tool-message presence matching. `true` matches when any `role: "tool"` message exists in the request; `false` matches when none exist. Provider-consistent across all aimock handlers (OpenAI, Claude, Gemini, Bedrock, Ollama, Cohere) |
 | `endpoint`       | `string`                                  | Restrict to endpoint type: `"chat"`, `"image"`, `"speech"`, `"transcription"`, `"video"`, `"embedding"` |
 | `predicate`      | `(req: ChatCompletionRequest) => boolean` | Custom function — full access to request                                                                |
 
 **AND logic**: all specified fields must match. Empty match `{}` = catch-all.
 
 Multi-part content (e.g., `[{type: "text", text: "hello"}]`) is automatically extracted — `userMessage` matching works regardless of content format.
+
+### When to Use Each Multi-turn Matching Approach
+
+| Approach         | Stateless? | Best For                                                                                                |
+| ---------------- | ---------- | ------------------------------------------------------------------------------------------------------- |
+| `turnIndex`      | Yes        | Shared/deployed instances; matches on conversation depth (count of assistant messages in request)        |
+| `hasToolResult`  | Yes        | Simplest option for 2-step tool flows — boolean: are there tool results in the request?                  |
+| `sequenceIndex`  | No         | Single-client unit tests with repeated identical requests (server-side counter, breaks under concurrency) |
+| `toolCallId`     | Yes        | Matching specific tool result IDs in the conversation history                                            |
+
+**Prefer stateless approaches** (`turnIndex`, `hasToolResult`) for shared aimock instances (deployed via Docker, used by multiple test runners). Use `sequenceIndex` only in isolated single-client unit tests where the counter won't be corrupted by concurrent requests.
+
+### Multi-turn fixture examples
+
+```json
+// 2-step HITL with turnIndex
+{"match": {"userMessage": "trip to mars", "turnIndex": 0}, "response": {"toolCalls": [{"id": "call_001", "name": "generate_steps", "arguments": "{}"}]}}
+{"match": {"userMessage": "trip to mars", "turnIndex": 1}, "response": {"content": "Great choices! Proceeding."}}
+
+// Same thing with hasToolResult (simpler for 2-step)
+{"match": {"userMessage": "trip to mars", "hasToolResult": false}, "response": {"toolCalls": [{"id": "call_001", "name": "generate_steps", "arguments": "{}"}]}}
+{"match": {"userMessage": "trip to mars", "hasToolResult": true}, "response": {"content": "Great choices!"}}
+```
 
 ## Response Types
 
