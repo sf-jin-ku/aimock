@@ -7,6 +7,8 @@ import {
   responsesInputToMessages,
   responsesToCompletionRequest,
   handleResponses,
+  buildTextStreamEvents,
+  buildContentWithToolCallsStreamEvents,
 } from "../responses.js";
 import { Journal } from "../journal.js";
 import { Logger } from "../logger.js";
@@ -248,7 +250,7 @@ describe("responsesInputToMessages", () => {
     expect(messages[0].tool_calls![0].function.arguments).toBe('{"city":"NYC"}');
   });
 
-  it("converts function_call_output to tool message", () => {
+  it("converts function_call_output to tool message (with synthesized assistant)", () => {
     const messages = responsesInputToMessages({
       model: "gpt-4",
       input: [
@@ -259,14 +261,36 @@ describe("responsesInputToMessages", () => {
         },
       ],
     });
-    expect(messages).toEqual([{ role: "tool", content: '{"temp":72}', tool_call_id: "call_123" }]);
+    // Bug 1 fix: a synthetic assistant message is now prepended when no
+    // matching function_call precedes the function_call_output
+    expect(messages).toHaveLength(2);
+    expect(messages[0].role).toBe("assistant");
+    expect(messages[0].tool_calls![0].id).toBe("call_123");
+    expect(messages[1]).toEqual({
+      role: "tool",
+      content: '{"temp":72}',
+      tool_call_id: "call_123",
+    });
   });
 
-  it("skips unknown item types", () => {
+  it("converts item_reference to assistant placeholder", () => {
     const messages = responsesInputToMessages({
       model: "gpt-4",
       input: [
         { type: "item_reference", id: "ref_123" },
+        { role: "user", content: "hi" },
+      ],
+    });
+    expect(messages).toHaveLength(2);
+    expect(messages[0]).toEqual({ role: "assistant", content: "" });
+    expect(messages[1]).toEqual({ role: "user", content: "hi" });
+  });
+
+  it("skips truly unknown item types (local_shell_call, mcp_list_tools, etc.)", () => {
+    const messages = responsesInputToMessages({
+      model: "gpt-4",
+      input: [
+        { type: "local_shell_call" } as { type: string; role?: string },
         { role: "user", content: "hi" },
       ],
     });
@@ -796,7 +820,10 @@ describe("responsesInputToMessages (fallback branches)", () => {
         },
       ],
     });
-    expect(messages[0].content).toBe("");
+    // messages[0] is the synthesized assistant (Bug 1 fix), messages[1] is the tool
+    expect(messages).toHaveLength(2);
+    expect(messages[1].role).toBe("tool");
+    expect(messages[1].content).toBe("");
   });
 
   it("handles content parts with missing text (text ?? '')", () => {
@@ -1353,5 +1380,415 @@ describe("handleResponses (direct call — ?? fallback branches)", () => {
     expect(entry!.method).toBe("POST");
     expect(entry!.path).toBe("/v1/responses");
     expect(entry!.response.status).toBe(503);
+  });
+});
+
+// ─── Bug 1: item_reference dropped → turnIndex stuck at 0 ──────────────────
+
+describe("Bug 1: item_reference + function_call_output synthesizes assistant", () => {
+  it("[user, item_reference, function_call_output] produces user, assistant(synthetic), tool", () => {
+    const messages = responsesInputToMessages({
+      model: "gpt-4",
+      input: [
+        { role: "user", content: "hello" },
+        { type: "item_reference", id: "ref_fc_123" },
+        { type: "function_call_output", call_id: "call_abc", output: '{"result":42}' },
+      ],
+    });
+
+    expect(messages).toHaveLength(3);
+    expect(messages[0].role).toBe("user");
+    expect(messages[1].role).toBe("assistant");
+    expect(messages[1].content).toBeNull();
+    expect(messages[1].tool_calls).toHaveLength(1);
+    expect(messages[1].tool_calls![0].id).toBe("call_abc");
+    expect(messages[2].role).toBe("tool");
+    expect(messages[2].content).toBe('{"result":42}');
+    expect(messages[2].tool_call_id).toBe("call_abc");
+  });
+
+  it("[user, function_call, function_call_output] produces NO duplicate assistant", () => {
+    const messages = responsesInputToMessages({
+      model: "gpt-4",
+      input: [
+        { role: "user", content: "hello" },
+        {
+          type: "function_call",
+          call_id: "call_real",
+          name: "get_weather",
+          arguments: '{"city":"NYC"}',
+        },
+        { type: "function_call_output", call_id: "call_real", output: '{"temp":72}' },
+      ],
+    });
+
+    expect(messages).toHaveLength(3);
+    expect(messages[0].role).toBe("user");
+    expect(messages[1].role).toBe("assistant");
+    expect(messages[1].tool_calls![0].id).toBe("call_real");
+    expect(messages[1].tool_calls![0].function.name).toBe("get_weather");
+    expect(messages[2].role).toBe("tool");
+  });
+
+  it("assistantCount equals 1 after [user, item_reference, function_call_output]", () => {
+    const messages = responsesInputToMessages({
+      model: "gpt-4",
+      input: [
+        { role: "user", content: "hello" },
+        { type: "item_reference", id: "ref_123" },
+        { type: "function_call_output", call_id: "call_xyz", output: "{}" },
+      ],
+    });
+
+    const assistantCount = messages.filter((m) => m.role === "assistant").length;
+    expect(assistantCount).toBe(1);
+  });
+
+  it("function_call_output without preceding item_reference or function_call still synthesizes", () => {
+    const messages = responsesInputToMessages({
+      model: "gpt-4",
+      input: [
+        { role: "user", content: "hello" },
+        { type: "function_call_output", call_id: "call_orphan", output: '{"x":1}' },
+      ],
+    });
+
+    expect(messages).toHaveLength(3);
+    expect(messages[1].role).toBe("assistant");
+    expect(messages[1].tool_calls![0].id).toBe("call_orphan");
+    expect(messages[2].role).toBe("tool");
+  });
+});
+
+// ─── Bug 2: annotations missing on output_text content items ────────────────
+
+describe("Bug 2: output_text includes annotations: []", () => {
+  it("streaming content_part.added has annotations: []", () => {
+    const events = buildTextStreamEvents("Hello", "gpt-4", 100);
+    const partAdded = events.find((e) => e.type === "response.content_part.added");
+    expect(partAdded).toBeDefined();
+    const part = (partAdded as { part: { type: string; annotations: unknown[] } }).part;
+    expect(part.type).toBe("output_text");
+    expect(part.annotations).toEqual([]);
+  });
+
+  it("streaming content_part.done has annotations: []", () => {
+    const events = buildTextStreamEvents("Hello", "gpt-4", 100);
+    const partDone = events.find((e) => e.type === "response.content_part.done");
+    expect(partDone).toBeDefined();
+    const part = (partDone as { part: { type: string; text: string; annotations: unknown[] } })
+      .part;
+    expect(part.type).toBe("output_text");
+    expect(part.text).toBe("Hello");
+    expect(part.annotations).toEqual([]);
+  });
+
+  it("streaming output_item.done message content has annotations: []", () => {
+    const events = buildTextStreamEvents("Hello", "gpt-4", 100);
+    const itemDone = events.find(
+      (e) =>
+        e.type === "response.output_item.done" && (e.item as { type: string })?.type === "message",
+    );
+    expect(itemDone).toBeDefined();
+    const item = itemDone!.item as { content: { type: string; annotations: unknown[] }[] };
+    expect(item.content[0].annotations).toEqual([]);
+  });
+
+  it("streaming response.completed output message content has annotations: []", () => {
+    const events = buildTextStreamEvents("Hello", "gpt-4", 100);
+    const completed = events.find((e) => e.type === "response.completed");
+    expect(completed).toBeDefined();
+    const response = completed!.response as { output: { content: { annotations: unknown[] }[] }[] };
+    const msgOutput = response.output.find(
+      (o: { type?: string }) => (o as { type: string }).type === "message",
+    ) as { content: { annotations: unknown[] }[] };
+    expect(msgOutput).toBeDefined();
+    expect(msgOutput.content[0].annotations).toEqual([]);
+  });
+
+  it("non-streaming response output_text has annotations: []", async () => {
+    const textFix: Fixture = {
+      match: { userMessage: "annotations-check" },
+      response: { content: "annotated" },
+    };
+    instance = await createServer([textFix]);
+    const res = await post(`${instance.url}/v1/responses`, {
+      model: "gpt-4",
+      input: [{ role: "user", content: "annotations-check" }],
+      stream: false,
+    });
+
+    const body = JSON.parse(res.body);
+    expect(body.output[0].content[0].annotations).toEqual([]);
+  });
+
+  it("content+toolCalls streaming has annotations: [] on output_text", () => {
+    const events = buildContentWithToolCallsStreamEvents(
+      "some text",
+      [{ name: "fn", arguments: "{}" }],
+      "gpt-4",
+      100,
+    );
+    const partAdded = events.find((e) => e.type === "response.content_part.added");
+    expect(partAdded).toBeDefined();
+    const part = (partAdded as { part: { annotations: unknown[] } }).part;
+    expect(part.annotations).toEqual([]);
+  });
+});
+
+// ─── Bug 3 & 4: item_id missing on reasoning_summary_part events ────────────
+
+describe("Bug 3 & 4: reasoning_summary_part events include item_id", () => {
+  it("reasoning_summary_part.added includes item_id", () => {
+    const events = buildTextStreamEvents("result", "gpt-4", 100, "thinking...");
+    const partAdded = events.find((e) => e.type === "response.reasoning_summary_part.added");
+    expect(partAdded).toBeDefined();
+    expect(partAdded!.item_id).toBeDefined();
+    expect(typeof partAdded!.item_id).toBe("string");
+  });
+
+  it("reasoning_summary_part.done includes item_id", () => {
+    const events = buildTextStreamEvents("result", "gpt-4", 100, "thinking...");
+    const partDone = events.find((e) => e.type === "response.reasoning_summary_part.done");
+    expect(partDone).toBeDefined();
+    expect(partDone!.item_id).toBeDefined();
+    expect(typeof partDone!.item_id).toBe("string");
+  });
+
+  it("reasoning_summary_part.added and .done share the same item_id as the reasoning item", () => {
+    const events = buildTextStreamEvents("result", "gpt-4", 100, "thinking...");
+    const reasoningAdded = events.find(
+      (e) =>
+        e.type === "response.output_item.added" &&
+        (e.item as { type: string })?.type === "reasoning",
+    );
+    const partAdded = events.find((e) => e.type === "response.reasoning_summary_part.added");
+    const partDone = events.find((e) => e.type === "response.reasoning_summary_part.done");
+
+    const reasoningId = (reasoningAdded!.item as { id: string }).id;
+    expect(partAdded!.item_id).toBe(reasoningId);
+    expect(partDone!.item_id).toBe(reasoningId);
+  });
+});
+
+// ─── Bug 5: web_search_call action missing type:"search" ────────────────────
+
+describe("Bug 5: web_search_call action includes type:search", () => {
+  it("streaming web_search_call output_item.added has action.type=search", () => {
+    const events = buildTextStreamEvents("result", "gpt-4", 100, undefined, ["test query"]);
+    const searchAdded = events.find(
+      (e) =>
+        e.type === "response.output_item.added" &&
+        (e.item as { type: string })?.type === "web_search_call",
+    );
+    expect(searchAdded).toBeDefined();
+    const action = (searchAdded!.item as { action: { type: string; query: string } }).action;
+    expect(action.type).toBe("search");
+    expect(action.query).toBe("test query");
+  });
+
+  it("streaming web_search_call output_item.done has action.type=search", () => {
+    const events = buildTextStreamEvents("result", "gpt-4", 100, undefined, ["test query"]);
+    const searchDone = events.find(
+      (e) =>
+        e.type === "response.output_item.done" &&
+        (e.item as { type: string })?.type === "web_search_call",
+    );
+    expect(searchDone).toBeDefined();
+    const action = (searchDone!.item as { action: { type: string; query: string } }).action;
+    expect(action.type).toBe("search");
+    expect(action.query).toBe("test query");
+  });
+
+  it("non-streaming web_search_call has action.type=search", async () => {
+    const webSearchFixture: Fixture = {
+      match: { userMessage: "search-action-type" },
+      response: { content: "found it", webSearches: ["copilotkit docs"] },
+    };
+    instance = await createServer([webSearchFixture]);
+    const res = await post(`${instance.url}/v1/responses`, {
+      model: "gpt-4",
+      input: [{ role: "user", content: "search-action-type" }],
+      stream: false,
+    });
+
+    const body = JSON.parse(res.body);
+    const searchItem = body.output.find((o: { type: string }) => o.type === "web_search_call");
+    expect(searchItem).toBeDefined();
+    expect(searchItem.action.type).toBe("search");
+    expect(searchItem.action.query).toBe("copilotkit docs");
+  });
+
+  it("multiple web searches all have action.type=search", () => {
+    const events = buildTextStreamEvents("result", "gpt-4", 100, undefined, ["query1", "query2"]);
+    const searchItems = events.filter(
+      (e) =>
+        e.type === "response.output_item.done" &&
+        (e.item as { type: string })?.type === "web_search_call",
+    );
+    expect(searchItems).toHaveLength(2);
+    for (const item of searchItems) {
+      const action = (item.item as { action: { type: string } }).action;
+      expect(action.type).toBe("search");
+    }
+  });
+});
+
+// ─── Bug 6: item_reference for assistant text messages ──────────────────────
+
+describe("Bug 6: item_reference for assistant text turns counted in assistantCount", () => {
+  it("[user, item_reference(text), user_2] → assistantCount = 1", () => {
+    const messages = responsesInputToMessages({
+      model: "gpt-4",
+      input: [
+        { role: "user", content: "hello" },
+        { type: "item_reference", id: "ref_text_msg" },
+        { role: "user", content: "follow up" },
+      ],
+    });
+
+    expect(messages).toHaveLength(3);
+    expect(messages[0].role).toBe("user");
+    expect(messages[1].role).toBe("assistant");
+    expect(messages[1].content).toBe("");
+    expect(messages[2].role).toBe("user");
+
+    const assistantCount = messages.filter((m) => m.role === "assistant").length;
+    expect(assistantCount).toBe(1);
+  });
+
+  it("[user, item_reference(fc), function_call_output, user_2] → assistantCount = 1 (not 2)", () => {
+    const messages = responsesInputToMessages({
+      model: "gpt-4",
+      input: [
+        { role: "user", content: "hello" },
+        { type: "item_reference", id: "ref_fc" },
+        { type: "function_call_output", call_id: "call_fc", output: '{"ok":true}' },
+        { role: "user", content: "next" },
+      ],
+    });
+
+    const assistantCount = messages.filter((m) => m.role === "assistant").length;
+    expect(assistantCount).toBe(1);
+    // The item_reference placeholder was upgraded to carry tool_calls
+    const assistantMsg = messages.find((m) => m.role === "assistant")!;
+    expect(assistantMsg.tool_calls).toHaveLength(1);
+    expect(assistantMsg.tool_calls![0].id).toBe("call_fc");
+  });
+
+  it("[user, item_ref(text), user_2, item_ref(fc), function_call_output] → assistantCount = 2", () => {
+    const messages = responsesInputToMessages({
+      model: "gpt-4",
+      input: [
+        { role: "user", content: "hello" },
+        { type: "item_reference", id: "ref_text" },
+        { role: "user", content: "follow up" },
+        { type: "item_reference", id: "ref_fc" },
+        { type: "function_call_output", call_id: "call_fc2", output: '{"done":true}' },
+      ],
+    });
+
+    const assistantMsgs = messages.filter((m) => m.role === "assistant");
+    expect(assistantMsgs).toHaveLength(2);
+
+    // First assistant is a text placeholder (no tool_calls)
+    expect(assistantMsgs[0].content).toBe("");
+    expect(assistantMsgs[0].tool_calls).toBeUndefined();
+
+    // Second assistant was upgraded from item_reference to carry tool_calls
+    expect(assistantMsgs[1].content).toBeNull();
+    expect(assistantMsgs[1].tool_calls).toHaveLength(1);
+    expect(assistantMsgs[1].tool_calls![0].id).toBe("call_fc2");
+  });
+
+  it("multiple item_references without function_call_output all count", () => {
+    const messages = responsesInputToMessages({
+      model: "gpt-4",
+      input: [
+        { role: "user", content: "q1" },
+        { type: "item_reference", id: "ref_1" },
+        { role: "user", content: "q2" },
+        { type: "item_reference", id: "ref_2" },
+        { role: "user", content: "q3" },
+      ],
+    });
+
+    const assistantCount = messages.filter((m) => m.role === "assistant").length;
+    expect(assistantCount).toBe(2);
+    expect(messages).toHaveLength(5);
+  });
+});
+
+// ─── Debug logging in handleResponses ───────────────────────────────────────
+
+describe("handleResponses debug logging", () => {
+  it("logs debug on fixture match", async () => {
+    const journal = new Journal();
+    const debugMessages: string[] = [];
+    const logger = new Logger("debug");
+    const origDebug = logger.debug.bind(logger);
+    logger.debug = (...args: unknown[]) => {
+      debugMessages.push(String(args[0]));
+      origDebug(...args);
+    };
+    const defaults = { latency: 0, chunkSize: 10, logger };
+
+    const mockReq = {
+      method: "POST",
+      url: "/v1/responses",
+      headers: {},
+    } as unknown as http.IncomingMessage;
+
+    const mockRes = createMockRes();
+
+    await handleResponses(
+      mockReq,
+      mockRes,
+      JSON.stringify({
+        model: "gpt-4",
+        input: [{ role: "user", content: "hello" }],
+      }),
+      [textFixture],
+      journal,
+      defaults,
+      () => {},
+    );
+
+    expect(debugMessages.some((m) => m.includes("Responses fixture matched"))).toBe(true);
+  });
+
+  it("logs debug on no fixture match", async () => {
+    const journal = new Journal();
+    const debugMessages: string[] = [];
+    const logger = new Logger("debug");
+    const origDebug = logger.debug.bind(logger);
+    logger.debug = (...args: unknown[]) => {
+      debugMessages.push(String(args[0]));
+      origDebug(...args);
+    };
+    const defaults = { latency: 0, chunkSize: 10, logger };
+
+    const mockReq = {
+      method: "POST",
+      url: "/v1/responses",
+      headers: {},
+    } as unknown as http.IncomingMessage;
+
+    const mockRes = createMockRes();
+
+    await handleResponses(
+      mockReq,
+      mockRes,
+      JSON.stringify({
+        model: "gpt-4",
+        input: [{ role: "user", content: "no-match-here" }],
+      }),
+      [],
+      journal,
+      defaults,
+      () => {},
+    );
+
+    expect(debugMessages.some((m) => m.includes("No responses fixture matched"))).toBe(true);
   });
 });
