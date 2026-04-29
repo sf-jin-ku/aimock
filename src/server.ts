@@ -462,6 +462,14 @@ async function handleCompletions(
 
   if (fixture) {
     journal.incrementFixtureMatchCount(fixture, fixtures, testId);
+    defaults.logger.debug(`Fixture matched: ${JSON.stringify(fixture.match).slice(0, 120)}`);
+  } else {
+    const lastUserMsg = body.messages.filter((m) => m.role === "user").pop();
+    const snippet =
+      typeof lastUserMsg?.content === "string" ? lastUserMsg.content.slice(0, 80) : "";
+    defaults.logger.debug(
+      `No fixture matched for request (model=${body.model ?? "?"}, msg="${snippet}")`,
+    );
   }
 
   const method = req.method ?? "POST";
