@@ -786,6 +786,9 @@ export async function handleCohere(
 
   if (fixture) {
     journal.incrementFixtureMatchCount(fixture, fixtures, testId);
+    logger.debug(`Fixture matched: ${JSON.stringify(fixture.match).slice(0, 120)}`);
+  } else {
+    logger.debug(`No fixture matched for request`);
   }
 
   if (

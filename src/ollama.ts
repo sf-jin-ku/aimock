@@ -498,6 +498,9 @@ export async function handleOllama(
 
   if (fixture) {
     journal.incrementFixtureMatchCount(fixture, fixtures, testId);
+    logger.debug(`Fixture matched: ${JSON.stringify(fixture.match).slice(0, 120)}`);
+  } else {
+    logger.debug(`No fixture matched for request`);
   }
 
   if (
@@ -800,6 +803,9 @@ export async function handleOllamaGenerate(
 
   if (fixture) {
     journal.incrementFixtureMatchCount(fixture, fixtures, testId);
+    defaults.logger.debug(`Fixture matched: ${JSON.stringify(fixture.match).slice(0, 120)}`);
+  } else {
+    defaults.logger.debug(`No fixture matched for request`);
   }
 
   if (

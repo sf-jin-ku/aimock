@@ -56,6 +56,9 @@ export async function handleTranscription(
 
   if (fixture) {
     journal.incrementFixtureMatchCount(fixture, fixtures, testId);
+    defaults.logger.debug(`Fixture matched: ${JSON.stringify(fixture.match).slice(0, 120)}`);
+  } else {
+    defaults.logger.debug(`No fixture matched for request`);
   }
 
   if (
