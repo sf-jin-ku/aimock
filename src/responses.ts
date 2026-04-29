@@ -86,6 +86,8 @@ function extractTextContent(content: string | ResponsesContentPart[] | undefined
 
 export function responsesInputToMessages(req: ResponsesRequest): ChatMessage[] {
   const messages: ChatMessage[] = [];
+  // Track item_reference placeholders so we can upgrade or clean them up
+  const itemReferencePlaceholders = new WeakSet<ChatMessage>();
 
   // instructions field → system message
   if (req.instructions) {
@@ -120,15 +122,63 @@ export function responsesInputToMessages(req: ResponsesRequest): ChatMessage[] {
         ],
       });
     } else if (item.type === "function_call_output") {
+      // Bug 1 fix: If there's no preceding assistant message with a matching
+      // tool_call for this call_id, synthesize one. This happens when the AI SDK
+      // sends [user, item_reference, function_call_output] — the item_reference
+      // placeholder (see below) has no tool_calls, so we need a real assistant
+      // message with the tool_call for turnIndex counting.
+      const hasMatchingToolCall = messages.some(
+        (m) => m.role === "assistant" && m.tool_calls?.some((tc) => tc.id === item.call_id),
+      );
+      if (!hasMatchingToolCall) {
+        // Check if the last message is an item_reference placeholder — if so,
+        // upgrade it to carry the tool_call instead of synthesizing a duplicate.
+        const lastMsg = messages[messages.length - 1];
+        if (
+          lastMsg &&
+          lastMsg.role === "assistant" &&
+          itemReferencePlaceholders.has(lastMsg) &&
+          !lastMsg.tool_calls
+        ) {
+          lastMsg.content = null;
+          lastMsg.tool_calls = [
+            {
+              id: item.call_id ?? generateToolCallId(),
+              type: "function",
+              function: { name: "", arguments: "" },
+            },
+          ];
+          itemReferencePlaceholders.delete(lastMsg);
+        } else {
+          messages.push({
+            role: "assistant",
+            content: null,
+            tool_calls: [
+              {
+                id: item.call_id ?? generateToolCallId(),
+                type: "function",
+                function: { name: "", arguments: "" },
+              },
+            ],
+          });
+        }
+      }
       messages.push({
         role: "tool",
         content: item.output ?? "",
         tool_call_id: item.call_id,
       });
+    } else if (item.type === "item_reference") {
+      // Bug 6 fix: item_reference items represent prior assistant turns (text
+      // or function_call). Push a placeholder so they count in assistantCount.
+      // If a subsequent function_call_output arrives, the handler above will
+      // upgrade this placeholder to carry tool_calls (avoiding double-count).
+      const placeholder: ChatMessage = { role: "assistant", content: "" };
+      itemReferencePlaceholders.add(placeholder);
+      messages.push(placeholder);
     } else {
-      // Skip item_reference, local_shell_call, mcp_list_tools, etc. — not needed
-      // for fixture matching. Logging is not threaded into this pure conversion
-      // function; callers can inspect the returned messages if needed.
+      // Skip local_shell_call, mcp_list_tools, etc. — not needed for fixture
+      // matching.
     }
   }
 
@@ -370,6 +420,7 @@ function buildReasoningStreamEvents(
 
   events.push({
     type: "response.reasoning_summary_part.added",
+    item_id: reasoningId,
     output_index: 0,
     summary_index: 0,
     part: { type: "summary_text", text: "" },
@@ -395,6 +446,7 @@ function buildReasoningStreamEvents(
 
   events.push({
     type: "response.reasoning_summary_part.done",
+    item_id: reasoningId,
     output_index: 0,
     summary_index: 0,
     part: { type: "summary_text", text: reasoning },
@@ -430,7 +482,7 @@ function buildWebSearchStreamEvents(
         type: "web_search_call",
         id: searchId,
         status: "in_progress",
-        action: { query: queries[i] },
+        action: { type: "search", query: queries[i] },
       },
     });
 
@@ -441,7 +493,7 @@ function buildWebSearchStreamEvents(
         type: "web_search_call",
         id: searchId,
         status: "completed",
-        action: { query: queries[i] },
+        action: { type: "search", query: queries[i] },
       },
     });
   }
@@ -545,7 +597,7 @@ function buildMessageOutputEvents(
     type: "response.content_part.added",
     output_index: outputIndex,
     content_index: 0,
-    part: { type: "output_text", text: "" },
+    part: { type: "output_text", text: "", annotations: [] },
   });
 
   for (let i = 0; i < content.length; i += chunkSize) {
@@ -568,7 +620,7 @@ function buildMessageOutputEvents(
     type: "response.content_part.done",
     output_index: outputIndex,
     content_index: 0,
-    part: { type: "output_text", text: content },
+    part: { type: "output_text", text: content, annotations: [] },
   });
 
   const msgItem = {
@@ -576,7 +628,7 @@ function buildMessageOutputEvents(
     id: msgId,
     status: "completed",
     role: "assistant",
-    content: [{ type: "output_text", text: content }],
+    content: [{ type: "output_text", text: content, annotations: [] }],
   };
 
   events.push({ type: "response.output_item.done", output_index: outputIndex, item: msgItem });
@@ -603,7 +655,7 @@ function buildOutputPrefix(content: string, reasoning?: string, webSearches?: st
         type: "web_search_call",
         id: generateId("ws"),
         status: "completed",
-        action: { query },
+        action: { type: "search", query },
       });
     }
   }
@@ -613,7 +665,7 @@ function buildOutputPrefix(content: string, reasoning?: string, webSearches?: st
     id: itemId(),
     status: "completed",
     role: "assistant",
-    content: [{ type: "output_text", text: content }],
+    content: [{ type: "output_text", text: content, annotations: [] }],
   });
 
   return output;
@@ -869,7 +921,14 @@ export async function handleResponses(
   );
 
   if (fixture) {
+    defaults.logger.debug(
+      `Responses fixture matched for ${req.method ?? "POST"} ${req.url ?? "/v1/responses"}`,
+    );
     journal.incrementFixtureMatchCount(fixture, fixtures, testId);
+  } else {
+    defaults.logger.debug(
+      `No responses fixture matched for ${req.method ?? "POST"} ${req.url ?? "/v1/responses"}`,
+    );
   }
 
   if (
