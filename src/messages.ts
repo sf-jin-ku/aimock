@@ -737,6 +737,14 @@ export async function handleMessages(
 
   if (fixture) {
     journal.incrementFixtureMatchCount(fixture, fixtures, testId);
+    logger.debug(`Fixture matched: ${JSON.stringify(fixture.match).slice(0, 120)}`);
+  } else {
+    const lastUserMsg = completionReq.messages.filter((m) => m.role === "user").pop();
+    const snippet =
+      typeof lastUserMsg?.content === "string" ? lastUserMsg.content.slice(0, 80) : "";
+    logger.debug(
+      `No fixture matched for request (model=${completionReq.model ?? "?"}, msg="${snippet}")`,
+    );
   }
 
   if (
