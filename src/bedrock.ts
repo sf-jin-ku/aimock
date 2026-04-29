@@ -359,6 +359,12 @@ export async function handleBedrock(
   );
 
   if (fixture) {
+    logger.debug(`Fixture matched: ${JSON.stringify(fixture.match).slice(0, 120)}`);
+  } else {
+    logger.debug(`No fixture matched for request`);
+  }
+
+  if (fixture) {
     journal.incrementFixtureMatchCount(fixture, fixtures, testId);
   }
 
@@ -925,6 +931,12 @@ export async function handleBedrockStream(
     journal.getFixtureMatchCountsForTest(testId),
     defaults.requestTransform,
   );
+
+  if (fixture) {
+    logger.debug(`Fixture matched: ${JSON.stringify(fixture.match).slice(0, 120)}`);
+  } else {
+    logger.debug(`No fixture matched for request`);
+  }
 
   if (fixture) {
     journal.incrementFixtureMatchCount(fixture, fixtures, testId);
